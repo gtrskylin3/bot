@@ -1,22 +1,31 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database.models import User
 from keyboards.user_menu import set_user_menu
 from aiogram.filters import CommandStart, Command
 import keyboards.user_kb as user_kb
 
-users = {}
+
 user_router = Router()
 user_router.startup.register(set_user_menu)
 image = FSInputFile("start.webp", filename='olesya.webp')
 
 
 @user_router.message(CommandStart())
-async def start(message: Message):
-    if message.chat.id not in users:
-        users[message.from_user.full_name] = message.chat.id
+async def start(message: Message, session: AsyncSession):
+    from_user = message.from_user
+    current_user = await session.get(User, from_user.id)
+    if current_user is None:
+        session.add(User(tg_id=from_user.id, name=from_user.full_name))
+    else:
+        current_user.is_active = True
+        session.merge(current_user)
+    await session.commit()        
     await message.answer_photo(photo=image, caption='Привет я Чернова Олеся <b>Психолог</b>\n' \
     'Работаю со взрослыми и детьми!❤\nИндивидуально и в группах.\n<b>Конфиденциально!</b>\n<b>Безопасно!</b>\n<b>Онлайн и оффлайн.</b>', reply_markup=user_kb.start_kb.as_markup())
-    print(users)
+
 
 @user_router.message(Command(commands='help'))
 async def help_cmd(message: Message):
