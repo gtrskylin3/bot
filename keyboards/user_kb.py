@@ -8,7 +8,6 @@ start_kb.button(text='Записаться', url='https://t.me/Olesja_Chernova')
 start_kb.button(text='Отзывы', url='https://t.me/+znP0wsKNCENlMmVi')
 start_kb.adjust(2)
 
-back_btn = InlineKeyboardButton(text='Вернуться', callback_data='back')
 back_mrk = InlineKeyboardMarkup(inline_keyboard=[
-    [back_btn]
+    [InlineKeyboardButton(text='Вернуться', callback_data='back')]
 ])
