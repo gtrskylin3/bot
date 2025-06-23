@@ -18,7 +18,7 @@ async def get_or_create_user(session: AsyncSession, user_tg_id: int, user_name: 
             current_user.name = user_name
         if not current_user.is_active:
             current_user.is_active = True
-            await session.commit()
+        await session.commit()
         return current_user
 
 async def deactivate_user(session: AsyncSession, user_tg_id: int):

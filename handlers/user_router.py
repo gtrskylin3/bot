@@ -1,13 +1,13 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from database.models import User, Service
 from keyboards.user_menu import set_user_menu
 from aiogram.filters import CommandStart, Command, or_f
 import keyboards.user_kb as user_kb
-from database.orm_query import get_or_create_user
+from database.orm_query import get_or_create_user, deactivate_user
 
 
 user_router = Router()
@@ -54,6 +54,19 @@ async def service_list(callback: CallbackQuery, session: AsyncSession):
 async def back(callback: CallbackQuery):
     await callback.message.answer_photo(photo=image, caption='Привет я Чернова Олеся <b>Психолог</b>\n' \
     'Работаю со взрослыми и детьми!❤\nИндивидуально и в группах.\n<b>Конфиденциально!</b>\n<b>Безопасно!</b>\n<b>Онлайн и оффлайн.</b>', reply_markup=user_kb.start_kb.as_markup())
+
+
+
+@user_router.my_chat_member()
+async def handle_my_chat_member(event: ChatMemberUpdated, session: AsyncSession):
+    """
+    Удаляет пользователя из базы, если он заблокировал бота (status = 'kicked' или 'left').
+    """
+    if event.new_chat_member.status in ("kicked", "left"):  # kicked - заблокировал, left - удалил
+        tg_id = event.from_user.id
+        await deactivate_user(session, tg_id)
+        # await session.execute(delete(User).where(User.tg_id == tg_id))
+        # await session.commit()
 
 @user_router.message()
 async def spam(message: Message):

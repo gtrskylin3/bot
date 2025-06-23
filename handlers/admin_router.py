@@ -169,6 +169,7 @@ async def send_all(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
     users = await session.scalars(select(User))
+    users = users.all()
     text = []
     if users:
         for user in users:
