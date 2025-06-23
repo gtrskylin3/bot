@@ -11,7 +11,7 @@ class DataBaseSession(BaseMiddleware):
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: Dict[str, Any],
-    ) -> Any:  # pragma: no cover
+    ) -> Any:  
         async with self.session_pool() as session:
             data['session'] = session
             return await handler(event, data)
