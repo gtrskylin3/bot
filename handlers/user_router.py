@@ -5,7 +5,8 @@ from database.orm_query import get_or_create_user, deactivate_user
 
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated, \
+    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact
 from aiogram.filters import CommandStart, Command, or_f, StateFilter
 import keyboards.user_kb as user_kb
 from handlers.user_text import START_TEXT
@@ -13,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from filters.admin_filter import admin
 from datetime import datetime
-
+from filters.month_filter import month_filter
 
 class Signup(StatesGroup):
     waiting_for_name = State()
@@ -109,7 +110,7 @@ async def start_signup(callback: CallbackQuery, state: FSMContext, session: Asyn
         await callback.message.answer("❌ Услуга не найдена")
         await callback.answer()
 
-@user_router.message(Signup.waiting_for_name)
+@user_router.message(F.text, Signup.waiting_for_name)
 async def get_name(message: Message, state: FSMContext):
     if len(message.text.strip()) < 2:
         await message.answer("❌ Имя должно содержать минимум 2 символа. Попробуйте снова:")
@@ -117,26 +118,49 @@ async def get_name(message: Message, state: FSMContext):
     
     await state.update_data(name=message.text.strip())
     await state.set_state(Signup.waiting_for_phone)
+    contact_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📞 Поделиться контактом", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
     await message.answer(
         "📞 Введите ваш номер телефона:\n\n"
         "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
-        "<i>Для отмены записи введите /cancel</i>"
+        "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
+        "<i>Для отмены записи введите /cancel</i>",
+        reply_markup=contact_kb
     )
 
 @user_router.message(Signup.waiting_for_phone)
-async def get_phone(message: Message, state: FSMContext):
-    phone = message.text.strip()
-    # Простая валидация телефона
-    if not (phone.startswith('+7') or phone.startswith('8')) or len(phone) < 10:
-        await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
-        return
-    
-    await state.update_data(phone=phone)
-    await state.set_state(Signup.waiting_for_date)
+async def get_phone(message: Message, state: FSMContext, bot: Bot):
+    if message.contact:
+        contact: Contact = message.contact
+        # Сохраняем данные контакта
+        await state.update_data(
+            phone=contact.phone_number,
+            contact_first_name=contact.first_name,
+            contact_last_name=contact.last_name
+        )
+        await state.set_state(Signup.waiting_for_date)
+    else:
+        try:
+            phone = message.text.strip()
+            # Простая валидация телефона
+            if not (phone.startswith('+7') or phone.startswith('8')) or len(phone) < 10:
+                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+                return
+            if phone.startswith('8'):
+                phone = '+7' + phone[1:]
+            phone = phone.replace(' ', '')
+            await state.update_data(phone=phone)
+            await state.set_state(Signup.waiting_for_date)
+        except:
+            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+            return
     await message.answer(
-        "📅 Введите предпочитаемую дату:\n\n"
-        "<i>Формат: ДД.ММ (например: 15.01)</i>\n\n"
-        "<i>Для отмены записи введите /cancel</i>"
+    "📅 Введите предпочитаемую дату:\n\n"
+    "<i>Формат: ДД.ММ (например: 15.01)</i>\n\n"
+    "<i>Для отмены записи введите /cancel</i>"
     )
 
 @user_router.message(Signup.waiting_for_date)
@@ -149,6 +173,11 @@ async def get_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат даты. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>")
         return
     
+    date_text = date_text.split('.')
+    if len(date_text[1]) == 1:
+        date_text[1] = '0' + date_text[1]
+    date_text[1] = month_filter[date_text[1]]
+    date_text = ' '.join(date_text)
     await state.update_data(preferred_date=date_text)
     await state.set_state(Signup.waiting_for_time)
     await message.answer(
@@ -181,7 +210,14 @@ async def get_time(message: Message, state: FSMContext, bot: Bot):
     admin_text += f"🕐 <b>Время:</b> {data['preferred_time']}\n"
     
     await bot.send_message(chat_id=admin, text=admin_text)
-    
+    if 'contact_first_name' in data:
+        await bot.send_contact(chat_id=admin, phone_number=data['phone'], first_name=data['contact_first_name'], last_name=data['contact_last_name'])
+    else:
+        # try:
+        await bot.send_contact(chat_id=admin, phone_number=data['phone'], first_name=data['name'])
+        # except:
+        #     pass
+    print(data)
     # Подтверждаем пользователю
     await message.answer(
         "✅ <b>Запись успешно создана!</b>\n\n"
@@ -189,7 +225,7 @@ async def get_time(message: Message, state: FSMContext, bot: Bot):
         f"💰 <b>Стоимость:</b> {data['service_price']} ₽\n"
         f"📅 <b>Дата:</b> {data['preferred_date']}\n"
         f"🕐 <b>Время:</b> {data['preferred_time']}\n\n"
-        "📞 Мы свяжемся с вами для подтверждения записи.\n\n"
+        "📞 Я свяжусь с вами для подтверждения записи.\n\n"
         "Спасибо за доверие! ❤️",
         reply_markup=user_kb.start_kb.as_markup()
     )
