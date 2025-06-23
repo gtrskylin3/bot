@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 

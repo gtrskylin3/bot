@@ -1,5 +1,10 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
 
 start_kb = InlineKeyboardBuilder()
 start_kb.button(text='Мои услуги', callback_data='service_list')
@@ -8,6 +13,13 @@ start_kb.button(text='Записаться', url='https://t.me/Olesja_Chernova')
 start_kb.button(text='Отзывы', url='https://t.me/+znP0wsKNCENlMmVi')
 start_kb.adjust(2)
 
+back_btn = InlineKeyboardButton(text='Вернуться в меню', callback_data='back')
+
 back_mrk = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='Вернуться', callback_data='back')]
+    [back_btn]
+])
+
+gift_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Забрать подарок', url=os.getenv('GIFT_URL'))],
+    [back_btn]
 ])

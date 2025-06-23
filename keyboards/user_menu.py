@@ -9,6 +9,8 @@ async def set_user_menu(bot: Bot):
         description='Главная'),
         BotCommand(command='/help', 
         description='Возможности бота'),
+        BotCommand(command='/gift',
+        description='Подарок'),
     ]
 
     await bot.set_my_commands(main_menu_commands)
