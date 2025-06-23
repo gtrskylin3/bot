@@ -23,3 +23,4 @@ gift_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Забрать подарок', url=os.getenv('GIFT_URL'))],
     [back_btn]
 ])
+
