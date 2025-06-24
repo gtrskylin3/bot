@@ -20,7 +20,7 @@ back_mrk = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 gift_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='Забрать подарок', url=os.getenv('GIFT_URL'))],
+    [InlineKeyboardButton(text='Забрать подарок', url='https://t.me/+OISLRdIfqhBiYzBi')],
     [back_btn]
 ])
 
