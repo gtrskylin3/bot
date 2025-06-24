@@ -6,7 +6,7 @@ from database.orm_query import get_or_create_user, deactivate_user
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated, \
-    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact, ReplyKeyboardRemove
+    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact, ReplyKeyboardRemove, ResultChatMemberUnion
 from aiogram.filters import CommandStart, Command, or_f, StateFilter
 import keyboards.user_kb as user_kb
 from handlers.user_text import START_TEXT
@@ -22,7 +22,7 @@ class Signup(StatesGroup):
     waiting_for_date = State()
     waiting_for_time = State()
     
-
+CHANNEL_ID = -1002726677960
 
 user_router = Router()
 user_router.startup.register(set_user_menu)
@@ -89,9 +89,27 @@ async def handle_my_chat_member(event: ChatMemberUpdated, session: AsyncSession)
         # await session.commit()
 
 @user_router.message(Command('gift'))
-async def gift_cmd(message: Message):
-    await message.answer("Чтобы получить <b>подарок</b> 🎁\n<b>Жмите на кнопку ниже 👇</b>\n", 
-    reply_markup=user_kb.gift_kb)
+async def sub_cmd(message: Message, bot: Bot):
+    await message.answer('Чтобы получить <b>подарок</b> 🎁\n<b>Подпишитесь на мой канал 👇</b>', reply_markup=user_kb.sub_kb)
+
+
+
+def check_sub_channel(chat_member):
+    print(chat_member.status)
+    return chat_member.status != 'left'
+
+
+@user_router.callback_query(F.data=='check_sub')
+async def gift_cmd(callback: CallbackQuery, bot: Bot):
+    await callback.answer('')
+    await callback.message.delete()
+    chat_member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=callback.from_user.id)
+    if not check_sub_channel(chat_member):
+        await callback.message.answer("Вы не подписаны на канал\n<b>Подпишитесь чтобы получить подарок🎁 👇</b>", reply_markup=user_kb.sub_kb)
+        return
+    else:
+        await callback.message.answer("Чтобы получить <b>подарок</b> 🎁\n<b>Жмите на кнопку ниже 👇</b>\n", 
+        reply_markup=user_kb.gift_kb)
 
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):

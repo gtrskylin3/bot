@@ -24,3 +24,7 @@ gift_kb = InlineKeyboardMarkup(inline_keyboard=[
     [back_btn]
 ])
 
+sub_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Подписаться', url='https://t.me/+k0hD8nKBAg43Yzky')],
+    [InlineKeyboardButton(text='Получить подарок🎁', callback_data='check_sub')]
+])
