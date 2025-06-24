@@ -6,7 +6,7 @@ from database.orm_query import get_or_create_user, deactivate_user
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated, \
-    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact
+    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact, ReplyKeyboardRemove
 from aiogram.filters import CommandStart, Command, or_f, StateFilter
 import keyboards.user_kb as user_kb
 from handlers.user_text import START_TEXT
@@ -70,6 +70,8 @@ async def service_list(callback: CallbackQuery, session: AsyncSession):
 
 @user_router.callback_query(F.data=='back')
 async def back(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.answer('')
     await callback.message.answer_photo(photo=image, caption=START_TEXT, 
     reply_markup=user_kb.start_kb.as_markup())
 
@@ -160,7 +162,8 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot):
     await message.answer(
     "📅 Введите предпочитаемую дату:\n\n"
     "<i>Формат: ДД.ММ (например: 15.01)</i>\n\n"
-    "<i>Для отмены записи введите /cancel</i>"
+    "<i>Для отмены записи введите /cancel</i>",
+    reply_markup=ReplyKeyboardRemove()
     )
 
 @user_router.message(Signup.waiting_for_date)
@@ -227,7 +230,7 @@ async def get_time(message: Message, state: FSMContext, bot: Bot):
         f"🕐 <b>Время:</b> {data['preferred_time']}\n\n"
         "📞 Я свяжусь с вами для подтверждения записи.\n\n"
         "Спасибо за доверие! ❤️",
-        reply_markup=user_kb.start_kb.as_markup()
+        reply_markup=user_kb.back_mrk
     )
     
     await state.clear()

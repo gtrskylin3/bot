@@ -1,9 +1,9 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import InlineKeyboardMarkup, Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import keyboards.admin_kb as admin_kb
@@ -23,6 +23,8 @@ class BroadcastSettings(StatesGroup):
     waiting_for_default_text = State()
     waiting_for_custom_text = State()
 
+class DeleteService(StatesGroup):
+    waiting_for_confirmation = State()
 
 admin_router = Router()
 admin_router.message.filter(Admin.IsAdmin())
@@ -103,7 +105,11 @@ async def start_change_default(callback: CallbackQuery, state: FSMContext):
     )
 
 @admin_router.callback_query(F.data=='back_to_admin')
-async def back_to_admin(callback: CallbackQuery):
+async def back_to_admin(callback: CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    print(current_state)
+    if current_state is not None:
+        await state.clear()
     await callback.message.delete()
     await callback.answer('')
     await callback.message.answer('Вы админисктратор вы можете cделать:', reply_markup=admin_kb.admin_kb.as_markup())
@@ -248,7 +254,7 @@ async def get_service_duration(message: Message, state: FSMContext, session: Asy
 @admin_router.callback_query(F.data=='view_services')
 async def view_services(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
-    await callback.answer('')
+    await callback.answer('Все услуги')
     
     services = await session.scalars(select(Service).where(Service.is_active == True))
     services_list = list(services)
@@ -256,13 +262,49 @@ async def view_services(callback: CallbackQuery, session: AsyncSession):
     if services_list:
         text = '<b>Список активных услуг:</b>\n\n'
         for service in services_list:
-            text += f'<b>{service.name}</b>\n'
+            service_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='❌ Удалить услугу', callback_data=f'delete_{service.id}')]
+                ]
+            )
+            text = f'<b>{service.name}</b>\n'
             text += f'📝 {service.description}\n'
             text += f'💰 {service.price} ₽\n'
             text += f'⏱ {service.duration} мин.\n'
             text += f'ID: {service.id}\n\n'
+            await callback.message.answer(text, reply_markup=service_kb)
     else:
-        text = 'Список услуг пуст'
-    
-    await callback.message.answer(text, reply_markup=admin_kb.admin_kb.as_markup())
+        await callback.message.answer('Список услуг пуст', reply_markup=admin_kb.back_to_admin.as_markup())
+        return
+    await callback.message.answer('Выберите услугу для <b>удаления</b> или вернитесь в меню', reply_markup=admin_kb.back_to_admin.as_markup())
+
+
+# @admin_router.callback_query(F.data== "")
+
+
+
+
+
+@admin_router.callback_query(F.data.startswith('delete_'))
+async def delete_service(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.message.delete()
+    await callback.message.answer('Вы уверены что хотите удалить услугу?', reply_markup=admin_kb.delete_confirm.as_markup())
+    await callback.answer('')
+    await state.set_state(DeleteService.waiting_for_confirmation)
+    await state.update_data(service_id=callback.data.split('_')[1])
+
+
+
+@admin_router.callback_query(F.data=='confirm_delete', DeleteService.waiting_for_confirmation)
+async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    service_id = data['service_id']
+    await session.execute(delete(Service).where(Service.id == service_id))
+    await session.commit()
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer('')
+    await callback.message.answer(f'Услуга <b>{service_id}</b> успешно удалена', reply_markup=admin_kb.back_to_admin.as_markup())
+
+
 

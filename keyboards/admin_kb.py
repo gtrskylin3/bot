@@ -14,3 +14,12 @@ broadcast_kb.button(text='✏️ Кастомный текст', callback_data='
 broadcast_kb.button(text='⚙️ Изменить стандартный текст', callback_data='change_default')
 broadcast_kb.button(text='🔙 Назад', callback_data='back_to_admin')
 broadcast_kb.adjust(2)
+
+back_to_admin = InlineKeyboardBuilder()
+back_to_admin.button(text='Вернуться в меню', callback_data='back_to_admin')
+back_to_admin.adjust(1)
+
+delete_confirm = InlineKeyboardBuilder() 
+delete_confirm.button(text='Да', callback_data='confirm_delete')
+delete_confirm.button(text='Нет', callback_data='back_to_admin')
+delete_confirm.adjust(1)
