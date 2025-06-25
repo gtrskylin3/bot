@@ -9,13 +9,14 @@ from handlers.user_router import user_router
 from handlers.admin_router import admin_router
 from middleware.db import DataBaseSession
 from database.engine import create_db, session_maker
+from handlers.broadcast_router import broadcast_router
 
 
 load_dotenv()
 
 bot = Bot(token=os.getenv('TOKEN'), default=DefaultBotProperties(parse_mode=ParseMode.HTML)) 
 dp = Dispatcher()
-dp.include_routers(admin_router, user_router)
+dp.include_routers(admin_router, broadcast_router, user_router)
 
 async def main():
     dp.update.middleware(DataBaseSession(session_pool=session_maker))

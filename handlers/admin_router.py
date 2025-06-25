@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import keyboards.admin_kb as admin_kb
 import filters.admin_filter as Admin
 from database.models import User, Service
-from database.orm_query import get_active_users, deactivate_user, get_or_create_broadcast_settings, update_default_broadcast_text
 
 
 class ServiceCreation(StatesGroup):
@@ -19,95 +18,17 @@ class ServiceCreation(StatesGroup):
     waiting_for_duration = State()
 
 
-class BroadcastSettings(StatesGroup):
-    waiting_for_default_text = State()
-    waiting_for_custom_text = State()
-
 class DeleteService(StatesGroup):
     waiting_for_confirmation = State()
 
-class SendVideo(StatesGroup):
-    waiting_for_video = State()
-    waiting_for_caption = State()
-    waiting_for_confirm = State()
-
 admin_router = Router()
 admin_router.message.filter(Admin.IsAdmin())
+admin_router.callback_query.filter(Admin.IsAdmin())
 
 @admin_router.message(CommandStart())
 async def admin_start(message: Message):
     await message.answer('Вы админисктратор вы можете cделать:', reply_markup=admin_kb.admin_kb.as_markup())
 
-@admin_router.callback_query(F.data=='send_all')
-async def send_all_menu(callback: CallbackQuery, session: AsyncSession):
-    await callback.message.delete()
-    await callback.answer('')
-    
-    # Получаем настройки рассылки админа
-    settings = await get_or_create_broadcast_settings(session)
-    
-
-    
-    
-    await callback.message.answer(
-        f'📢 <b>Настройка рассылки</b>\n\n'
-        f'Текущий стандартный текст:\n'
-        f'<i>"{settings.default_text}"</i>\n\n'
-        f'Выберите тип рассылки:',
-        reply_markup=admin_kb.broadcast_kb.as_markup()
-    )
-
-@admin_router.callback_query(F.data=='send_default')
-async def send_default_broadcast(callback: CallbackQuery, bot: Bot, session: AsyncSession):
-    await callback.message.delete()
-    await callback.answer('')
-    
-    # Получаем стандартный текст
-    settings = await get_or_create_broadcast_settings(session)
-    users = await get_active_users(session)
-    
-    if users:
-        success_count = 0
-        failed_count = 0
-        
-        for user in users:
-            try:
-                await bot.send_message(chat_id=str(user.tg_id), text=settings.default_text)
-                success_count += 1
-            except Exception as e:
-                failed_count += 1
-                await deactivate_user(session, user.tg_id)
-                print(f"Ошибка отправки пользователю {user.tg_id}: {e}")
-        
-        await callback.message.answer(
-            f"✅ Рассылка стандартным текстом завершена!\n\n"
-            f"📤 Отправлено: {success_count}\n"
-            f"❌ Ошибок: {failed_count}\n\n"
-            f"📝 Текст: <i>\"{settings.default_text}\"</i>",
-            reply_markup=admin_kb.admin_kb.as_markup()
-        )
-    else:
-        await callback.message.answer('Список пользователей пуст', reply_markup=admin_kb.admin_kb.as_markup())
-
-@admin_router.callback_query(F.data=='send_custom')
-async def start_custom_broadcast(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.answer('')
-    await state.set_state(BroadcastSettings.waiting_for_custom_text)
-    await callback.message.answer(
-        '✏️ Введите текст для рассылки:\n\n'
-        'Для отмены введите /cancel'
-    )
-
-@admin_router.callback_query(F.data=='change_default')
-async def start_change_default(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.answer('')
-    await state.set_state(BroadcastSettings.waiting_for_default_text)
-    await callback.message.answer(
-        '⚙️ Введите новый стандартный текст для рассылки:\n\n'
-        'Для отмены введите /cancel'
-    )
 
 @admin_router.callback_query(F.data=='back_to_admin')
 async def back_to_admin(callback: CallbackQuery, state: FSMContext):
@@ -128,52 +49,6 @@ async def cancel_broadcast_settings(message: Message, state: FSMContext):
     else:
         await message.answer('Нет активного процесса настройки.')
 
-@admin_router.message(BroadcastSettings.waiting_for_custom_text)
-async def get_custom_text(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
-    custom_text = message.text
-    await state.clear()
-    
-    # Получаем активных пользователей
-    users = await get_active_users(session)
-    
-    if users:
-        success_count = 0
-        failed_count = 0
-        
-        for user in users:
-            try:
-                await bot.send_message(chat_id=str(user.tg_id), text=custom_text)
-                success_count += 1
-            except Exception as e:
-                # Если пользователь заблокировал бота или другая ошибка
-                failed_count += 1
-                await deactivate_user(session, user.tg_id)
-                print(f"Ошибка отправки пользователю {user.tg_id}: {e}")
-        
-        await message.answer(
-            f"✅ Рассылка кастомным текстом завершена!\n\n"
-            f"📤 Отправлено: {success_count}\n"
-            f"❌ Ошибок: {failed_count}\n\n"
-            f"📝 Текст: <i>\"{custom_text}\"</i>",
-            reply_markup=admin_kb.admin_kb.as_markup()
-        )
-    else:
-        await message.answer('Список пользователей пуст', reply_markup=admin_kb.admin_kb.as_markup())
-
-@admin_router.message(BroadcastSettings.waiting_for_default_text)
-async def get_new_default_text(message: Message, state: FSMContext, session: AsyncSession):
-    new_text = message.text
-    await state.clear()
-    
-    # Обновляем стандартный текст
-    await update_default_broadcast_text(session, new_text)
-    
-    await message.answer(
-        f"✅ Стандартный текст обновлен!\n\n"
-        f"📝 Новый текст: <i>\"{new_text}\"</i>\n\n"
-        f"Теперь при выборе 'Стандартный текст' будет отправляться этот текст.",
-        reply_markup=admin_kb.admin_kb.as_markup()
-    )
 
 @admin_router.callback_query(F.data=='user_list')
 async def send_all(callback: CallbackQuery, session: AsyncSession):
@@ -284,12 +159,6 @@ async def view_services(callback: CallbackQuery, session: AsyncSession):
     await callback.message.answer('Выберите услугу для <b>удаления</b> или вернитесь в меню', reply_markup=admin_kb.back_to_admin.as_markup())
 
 
-# @admin_router.callback_query(F.data== "")
-
-
-
-
-
 @admin_router.callback_query(F.data.startswith('delete_'))
 async def delete_service(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await callback.message.delete()
@@ -311,71 +180,8 @@ async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: As
     await callback.answer('')
     await callback.message.answer(f'Услуга <b>{service_id}</b> успешно удалена', reply_markup=admin_kb.back_to_admin.as_markup())
 
-@admin_router.callback_query(F.data=='send_video')
-async def get_video(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.answer('')
-    await state.clear()
-    await state.set_state(SendVideo.waiting_for_video)
-    await callback.message.answer('Отправьте видео для рассылки или отмените /cancel', reply_markup=admin_kb.back_to_admin.as_markup())
 
-@admin_router.message(F.video, SendVideo.waiting_for_video)
-async def receive_video(message: Message, state: FSMContext):
-    video = message.video.file_id
-    await state.update_data(video=video)
-    await state.set_state(SendVideo.waiting_for_caption)
-    await message.answer('Введите текст для подписи к видео (или отправьте "-", чтобы оставить без подписи):', reply_markup=admin_kb.back_to_admin.as_markup())
 
-@admin_router.message(SendVideo.waiting_for_caption)
-async def receive_caption(message: Message, state: FSMContext):
-    caption = message.text.strip()
-    if caption == "-":
-        caption = None
-    await state.update_data(caption=caption)
-    data = await state.get_data()
-    await state.set_state(SendVideo.waiting_for_confirm)
-    await message.answer(
-        f"Вы уверены, что хотите отправить видео всем пользователям?\n\n"
-        f"<b>Подпись:</b> {caption if caption else 'Без подписи'}\n\n"
-        f"Для подтверждения нажмите 'Подтвердить', для отмены — /cancel",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text='Подтвердить', callback_data='confirm_send_video')],
-                [InlineKeyboardButton(text='Отмена', callback_data='back_to_admin')]
-            ]
-        )
-    )
-
-@admin_router.callback_query(F.data=='confirm_send_video', SendVideo.waiting_for_confirm)
-async def broadcast_video_confirm(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
-    data = await state.get_data()
-    video = data.get('video')
-    caption = data.get('caption')
-    users = await get_active_users(session)
-    await state.clear()
-    if users:
-        success_count = 0
-        failed_count = 0
-        for user in users:
-            try:
-                await bot.send_video(chat_id=str(user.tg_id), video=video, caption=caption)
-                success_count += 1
-            except Exception as e:
-                # Если пользователь заблокировал бота или другая ошибка
-                failed_count += 1
-                await deactivate_user(session, user.tg_id)
-                print(f"Ошибка отправки пользователю {user.tg_id}: {e}")
-        await callback.message.answer(
-            f"✅ Рассылка видео завершена!\n\n"
-            f"📤 Отправлено: {success_count}\n"
-            f"❌ Ошибок: {failed_count}\n\n"
-            f"📝 Видео: <i>\"{video}\"</i>\n"
-            f"📝 Подпись: {caption if caption else 'Без подписи'}",
-            reply_markup=admin_kb.admin_kb.as_markup()
-        )
-    else:
-        await callback.message.answer('Список пользователей пуст', reply_markup=admin_kb.admin_kb.as_markup())
-    await callback.answer('')
 
 
 
