@@ -26,6 +26,11 @@ class BroadcastSettings(StatesGroup):
 class DeleteService(StatesGroup):
     waiting_for_confirmation = State()
 
+class SendVideo(StatesGroup):
+    waiting_for_video = State()
+    waiting_for_caption = State()
+    waiting_for_confirm = State()
+
 admin_router = Router()
 admin_router.message.filter(Admin.IsAdmin())
 
@@ -305,6 +310,73 @@ async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: As
     await callback.message.delete()
     await callback.answer('')
     await callback.message.answer(f'Услуга <b>{service_id}</b> успешно удалена', reply_markup=admin_kb.back_to_admin.as_markup())
+
+@admin_router.callback_query(F.data=='send_video')
+async def get_video(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.answer('')
+    await state.clear()
+    await state.set_state(SendVideo.waiting_for_video)
+    await callback.message.answer('Отправьте видео для рассылки или отмените /cancel', reply_markup=admin_kb.back_to_admin.as_markup())
+
+@admin_router.message(F.video, SendVideo.waiting_for_video)
+async def receive_video(message: Message, state: FSMContext):
+    video = message.video.file_id
+    await state.update_data(video=video)
+    await state.set_state(SendVideo.waiting_for_caption)
+    await message.answer('Введите текст для подписи к видео (или отправьте "-", чтобы оставить без подписи):', reply_markup=admin_kb.back_to_admin.as_markup())
+
+@admin_router.message(SendVideo.waiting_for_caption)
+async def receive_caption(message: Message, state: FSMContext):
+    caption = message.text.strip()
+    if caption == "-":
+        caption = None
+    await state.update_data(caption=caption)
+    data = await state.get_data()
+    await state.set_state(SendVideo.waiting_for_confirm)
+    await message.answer(
+        f"Вы уверены, что хотите отправить видео всем пользователям?\n\n"
+        f"<b>Подпись:</b> {caption if caption else 'Без подписи'}\n\n"
+        f"Для подтверждения нажмите 'Подтвердить', для отмены — /cancel",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text='Подтвердить', callback_data='confirm_send_video')],
+                [InlineKeyboardButton(text='Отмена', callback_data='back_to_admin')]
+            ]
+        )
+    )
+
+@admin_router.callback_query(F.data=='confirm_send_video', SendVideo.waiting_for_confirm)
+async def broadcast_video_confirm(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
+    data = await state.get_data()
+    video = data.get('video')
+    caption = data.get('caption')
+    users = await get_active_users(session)
+    await state.clear()
+    if users:
+        success_count = 0
+        failed_count = 0
+        for user in users:
+            try:
+                await bot.send_video(chat_id=str(user.tg_id), video=video, caption=caption)
+                success_count += 1
+            except Exception as e:
+                # Если пользователь заблокировал бота или другая ошибка
+                failed_count += 1
+                await deactivate_user(session, user.tg_id)
+                print(f"Ошибка отправки пользователю {user.tg_id}: {e}")
+        await callback.message.answer(
+            f"✅ Рассылка видео завершена!\n\n"
+            f"📤 Отправлено: {success_count}\n"
+            f"❌ Ошибок: {failed_count}\n\n"
+            f"📝 Видео: <i>\"{video}\"</i>\n"
+            f"📝 Подпись: {caption if caption else 'Без подписи'}",
+            reply_markup=admin_kb.admin_kb.as_markup()
+        )
+    else:
+        await callback.message.answer('Список пользователей пуст', reply_markup=admin_kb.admin_kb.as_markup())
+    await callback.answer('')
+
 
 
 
