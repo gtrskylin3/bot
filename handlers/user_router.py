@@ -47,7 +47,7 @@ async def service_list(callback: CallbackQuery, session: AsyncSession):
     # await callback.message.answer('<b>Мои услуги:</b>')
     services = await session.scalars(select(Service).where(Service.is_active == True))
     services_list = list(services)
-    
+    # await callback.message.delete()
 
     if services_list:
         for service in services_list:
@@ -89,13 +89,12 @@ async def handle_my_chat_member(event: ChatMemberUpdated, session: AsyncSession)
         # await session.commit()
 
 @user_router.message(Command('gift'))
-async def sub_cmd(message: Message, bot: Bot):
+async def sub_cmd(message: Message):
     await message.answer('Чтобы получить <b>подарок</b> 🎁\n<b>Подпишитесь на мой канал 👇</b>', reply_markup=user_kb.sub_kb)
 
 
 
 def check_sub_channel(chat_member):
-    print(chat_member.status)
     return chat_member.status != 'left'
 
 
@@ -110,6 +109,19 @@ async def gift_cmd(callback: CallbackQuery, bot: Bot):
     else:
         await callback.message.answer("Чтобы получить <b>подарок</b> 🎁\n<b>Жмите на кнопку ниже 👇</b>\n", 
         reply_markup=user_kb.gift_kb)
+
+@user_router.message(Command('cancel'))
+async def cancel_signup(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state and current_state.startswith('Signup:'):
+        await state.clear()
+        await message.answer(
+            "❌ Запись отменена\n\n"
+            "Вы можете начать новую запись, выбрав услугу в меню.",
+            reply_markup=user_kb.back_mrk
+        )
+    else:
+        await message.answer("Нет активной записи для отмены")
 
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -253,20 +265,8 @@ async def get_time(message: Message, state: FSMContext, bot: Bot):
     
     await state.clear()
 
-@user_router.message(Command('cancel'))
-async def cancel_signup(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state and current_state.startswith('Signup:'):
-        await state.clear()
-        await message.answer(
-            "❌ Запись отменена\n\n"
-            "Вы можете начать новую запись, выбрав услугу в меню.",
-            reply_markup=user_kb.start_kb.as_markup()
-        )
-    else:
-        await message.answer("Нет активной записи для отмены")
 
 @user_router.message()
 async def spam(message: Message):
-    await message.answer('Воспользуйтесь меню для навигации', reply_markup=user_kb.start_kb.as_markup())
+    await message.answer('Воспользуйтесь меню для навигации', reply_markup=user_kb.back_mrk)
 
