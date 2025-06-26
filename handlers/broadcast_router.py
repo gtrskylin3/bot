@@ -16,6 +16,8 @@ broadcast_router.callback_query.filter(IsAdmin())
 class BroadcastSettings(StatesGroup):
     waiting_for_default_text = State()
     waiting_for_custom_text = State()
+    waiting_for_default_text_confirm = State()
+    waiting_for_custom_confirm = State()
 
 class SendVideo(StatesGroup):
     waiting_for_video = State()
@@ -27,7 +29,10 @@ class SendVideoNote(StatesGroup):
     waiting_for_confirm = State()
 
 @broadcast_router.callback_query(F.data=='broadcast_menu')
-async def broadcast_menu(callback: CallbackQuery):
+async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is not None:
+        await state.clear()
     await callback.message.delete()
     await callback.answer('')
     await callback.message.answer('Выберите тип рассылки:', reply_markup=admin_kb.broadcast_menu.as_markup())
@@ -79,8 +84,27 @@ async def start_change_default(callback: CallbackQuery, state: FSMContext):
     )
 
 @broadcast_router.message(BroadcastSettings.waiting_for_custom_text)
-async def get_custom_text(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
+async def get_custom_text(message: Message, state: FSMContext):
     custom_text = message.text
+    await state.update_data(custom_text=custom_text)
+    await state.set_state(BroadcastSettings.waiting_for_custom_confirm)
+    await message.answer(
+        f'Вы уверены, что хотите отправить этот текст всем пользователям?\n\n'
+        f'<b>Текст:</b> {custom_text}\n\n',
+        reply_markup=admin_kb.confirm_send_custom_text
+    )
+
+@broadcast_router.callback_query(F.data=='edit_custom_text', BroadcastSettings.waiting_for_custom_confirm)
+async def edit_custom_text(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.answer('')
+    await state.set_state(BroadcastSettings.waiting_for_custom_text)
+    await callback.message.answer('Введите новый текст для рассылки:')
+
+@broadcast_router.callback_query(F.data=='confirm_send_text', BroadcastSettings.waiting_for_custom_confirm)
+async def confirm_send_text(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
+    data = await state.get_data()
+    custom_text = data.get('custom_text')
     await state.clear()
     success_count, failed_count = await send_broadcast(
         bot=bot,
@@ -90,9 +114,9 @@ async def get_custom_text(message: Message, state: FSMContext, bot: Bot, session
         text=custom_text
     )
     result_text = format_broadcast_result(success_count, failed_count, "кастомным текстом", custom_text)
-    await message.answer(result_text, reply_markup=admin_kb.admin_kb.as_markup())
-
-
+    await callback.message.answer(result_text, reply_markup=admin_kb.admin_kb.as_markup())
+    await callback.message.delete()
+    await callback.answer('')
 
 @broadcast_router.message(BroadcastSettings.waiting_for_default_text)
 async def get_new_default_text(message: Message, state: FSMContext, session: AsyncSession):
@@ -106,25 +130,36 @@ async def get_new_default_text(message: Message, state: FSMContext, session: Asy
         f"✅ Стандартный текст обновлен!\n\n"
         f"📝 Новый текст: <i>\"{new_text}\"</i>\n\n"
         f"Теперь при выборе 'Стандартный текст' будет отправляться этот текст.",
-        reply_markup=admin_kb.admin_kb.as_markup()
+        reply_markup=admin_kb.broadcast_kb.as_markup()
     )
 
 @broadcast_router.callback_query(F.data=='send_default')
-async def send_default_broadcast(callback: CallbackQuery, bot: Bot, session: AsyncSession):
+async def send_default_broadcast(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
-    
+    await state.set_state(BroadcastSettings.waiting_for_default_text_confirm)
     # Получаем стандартный текст
     settings = await get_or_create_broadcast_settings(session)
-    
+    await state.update_data(default_text=settings.default_text)
+    await callback.message.answer(
+        f'Вы уверены, что хотите отправить этот текст всем пользователям?\n\n'
+        f'<b>Текст:</b> {settings.default_text}\n\n',
+        reply_markup=admin_kb.confirm_send_default_text
+    )
+
+@broadcast_router.callback_query(F.data=='confirm_send_text', BroadcastSettings.waiting_for_default_text_confirm)
+async def confirm_send_text(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
+    data = await state.get_data()
+    default_text = data.get('default_text')
+    await state.clear()
     success_count, failed_count = await send_broadcast(
         bot=bot,
         session=session,
         send_func=bot.send_message,
         content_type="стандартным текстом",
-        text=settings.default_text
+        text=default_text
     )
-    result_text = format_broadcast_result(success_count, failed_count, "стандартным текстом", settings.default_text)
+    result_text = format_broadcast_result(success_count, failed_count, "стандартным текстом", default_text)
     await callback.message.answer(result_text, reply_markup=admin_kb.admin_kb.as_markup())
     
 

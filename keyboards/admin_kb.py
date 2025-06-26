@@ -37,12 +37,29 @@ confirm_send_video = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text='✅ Подтвердить', callback_data='confirm_send_video')],
                 [InlineKeyboardButton(text='✏️ Изменить подпись', callback_data='edit_caption')],
-                [InlineKeyboardButton(text='❌ Отмена', callback_data='back_to_admin')]
+                [InlineKeyboardButton(text='❌ Отмена', callback_data='broadcast_menu')]
             ]
 )
 confirm_send_video_note = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text='✅ Подтвердить', callback_data='confirm_send_video_note')],
-                [InlineKeyboardButton(text='❌ Отмена', callback_data='back_to_admin')]
+                [InlineKeyboardButton(text='❌ Отмена', callback_data='broadcast_menu')]
             ]
+)
+
+# Клавиатура подтверждения рассылки текста
+confirm_send_custom_text = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text='✅ Подтвердить', callback_data='confirm_send_text')],
+        [InlineKeyboardButton(text='✏️ Изменить текст', callback_data='edit_custom_text')],
+        [InlineKeyboardButton(text='❌ Отмена', callback_data='broadcast_menu')]
+    ]
+)
+
+confirm_send_default_text = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text='✅ Подтвердить', callback_data='confirm_send_text')],
+        [InlineKeyboardButton(text='✏️ Изменить текст', callback_data='change_default')],
+        [InlineKeyboardButton(text='❌ Отмена', callback_data='broadcast_menu')]
+    ]
 )
