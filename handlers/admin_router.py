@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import keyboards.admin_kb as admin_kb
 import filters.admin_filter as Admin
 from database.models import User, Service
+from database.orm_query import get_all_bookings, delete_booking
 
 
 class ServiceCreation(StatesGroup):
@@ -181,8 +182,77 @@ async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: As
     await callback.message.answer(f'Услуга <b>{service_id}</b> успешно удалена', reply_markup=admin_kb.back_to_admin.as_markup())
 
 
+@admin_router.callback_query(F.data=='view_bookings')
+async def view_bookings(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
+    try:
+        # Получаем все записи
+        bookings = await get_all_bookings(session)
+        
+        if bookings:
+            # Показываем последние 10 записей
+            recent_bookings = bookings[:10]
+            
+            for booking in recent_bookings:
+                booking_text = f"<b>Запись #{booking.id}</b>\n"
+                booking_text += f"👤 <b>Клиент:</b> {booking.client_name}\n"
+                booking_text += f"📞 <b>Телефон:</b> {booking.phone}\n"
+                booking_text += f"🎯 <b>Услуга:</b> {booking.service.name}\n"
+                booking_text += f"💰 <b>Стоимость:</b> {booking.service.price} ₽\n"
+                booking_text += f"📅 <b>Дата:</b> {booking.preferred_date}\n"
+                booking_text += f"🕐 <b>Время:</b> {booking.preferred_time}\n"
+                booking_text += f"📝 <b>Создана:</b> {booking.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                
+                await callback.message.answer(
+                    booking_text, 
+                    reply_markup=admin_kb.get_booking_actions_kb(booking.id)
+                )
+                
+            # Информация о количестве записей
+            if len(bookings) > 10:
+                await callback.message.answer(
+                    f"📊 <b>Показано последних 10 записей из {len(bookings)}</b>\n\n"
+                    f"Для просмотра следующих записей удалите старые.",
+                    reply_markup=admin_kb.back_to_admin.as_markup()
+                )
+
+        else:
+            await callback.message.answer(
+                '📋 Записей пока нет', 
+                reply_markup=admin_kb.admin_kb.as_markup()
+            )
+    except Exception as e:
+        print(f"Ошибка при получении записей: {e}")
+        await callback.message.answer(
+            '❌ Произошла ошибка при получении записей', 
+            reply_markup=admin_kb.admin_kb.as_markup()
+        )
 
 
+@admin_router.callback_query(F.data.startswith('booking_cancel_'))
+async def cancel_booking(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    booking_id = callback.data.split('_')[2]
+    booking_user_chat = await delete_booking(session, booking_id)
+    if booking_user_chat:
+        await bot.send_message(chat_id=booking_user_chat, text='Ваша запись отменена ❌')
+        await callback.message.answer(f'Запись <b>{booking_id}</b> отменена и удалена', reply_markup=admin_kb.back_to_admin.as_markup())
+    else:
+        await callback.message.answer(f'Запись <b>{booking_id}</b> не найдена', reply_markup=admin_kb.back_to_admin.as_markup())
+    await callback.message.delete()
+    await callback.answer('')
+    
 
-
-
+@admin_router.callback_query(F.data.startswith('booking_complete_'))
+async def complete_booking(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    booking_id = callback.data.split('_')[2]
+    booking_user_chat = await delete_booking(session, booking_id)
+    if booking_user_chat:
+        await bot.send_message(chat_id=booking_user_chat, text='Прошу вас оставить отзыв о моей работе!', reply_markup=admin_kb.review_kb)    
+        await callback.message.answer(f'Запись <b>{booking_id}</b> завершена и удалена', reply_markup=admin_kb.back_to_admin.as_markup())
+    else:
+        await callback.message.answer(f'Запись <b>{booking_id}</b> не найдена', reply_markup=admin_kb.back_to_admin.as_markup())
+    await callback.message.delete()
+    await callback.answer('')
+    

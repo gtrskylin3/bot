@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 admin_kb = InlineKeyboardBuilder()
 admin_kb.button(text='📤 Рассылка', callback_data='broadcast_menu')
+admin_kb.button(text='📋 Просмотр записей', callback_data='view_bookings')
 admin_kb.button(text='👥 Посмотреть список пользователей', callback_data='user_list')
 admin_kb.button(text='➕ Добавить услугу', callback_data='add_service')
 admin_kb.button(text='👀 Посмотреть услуги', callback_data='view_services')
@@ -61,5 +62,33 @@ confirm_send_default_text = InlineKeyboardMarkup(
         [InlineKeyboardButton(text='✅ Подтвердить', callback_data='confirm_send_text')],
         [InlineKeyboardButton(text='✏️ Изменить текст', callback_data='change_default')],
         [InlineKeyboardButton(text='❌ Отмена', callback_data='broadcast_menu')]
+    ]
+)
+
+
+def get_booking_delete_kb(booking_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='❌ Удалить', callback_data=f'booking_delete_{booking_id}')],
+        ]
+    )
+
+
+
+
+def get_booking_actions_kb(booking_id: int) -> InlineKeyboardMarkup:
+    """Создает клавиатуру для управления записью"""
+    buttons = []
+    
+    buttons.extend([
+            [InlineKeyboardButton(text='🎉 Завершить и удалить', callback_data=f'booking_complete_{booking_id}')],
+            [InlineKeyboardButton(text='❌ Отменить и удалить', callback_data=f'booking_cancel_{booking_id}')],
+            [InlineKeyboardButton(text='🔙 Назад', callback_data='back_to_admin')]
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+review_kb = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text='Отзывы', url='https://t.me/+znP0wsKNCENlMmVi')]
     ]
 )

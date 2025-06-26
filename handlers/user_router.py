@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from database.models import User, Service
-from database.orm_query import get_or_create_user, deactivate_user
+from database.orm_query import get_or_create_user, deactivate_user, create_booking
 
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
@@ -44,7 +44,6 @@ async def help_cmd(message: Message):
 @user_router.callback_query(F.data=='service_list')
 async def service_list(callback: CallbackQuery, session: AsyncSession):    
     # Получаем активные услуги из базы данных
-    # await callback.message.answer('<b>Мои услуги:</b>')
     services = await session.scalars(select(Service).where(Service.is_active == True))
     services_list = list(services)
     # await callback.message.delete()
@@ -220,7 +219,7 @@ async def get_date(message: Message, state: FSMContext):
     )
 
 @user_router.message(Signup.waiting_for_time)
-async def get_time(message: Message, state: FSMContext, bot: Bot):
+async def get_time(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     time_text = message.text.strip()
     # Простая валидация времени
     try:
@@ -231,38 +230,64 @@ async def get_time(message: Message, state: FSMContext, bot: Bot):
     
     await state.update_data(preferred_time=time_text)
     data = await state.get_data()
-    
-    # Уведомляем админа
-    admin_text = f"🎯 <b>Новая запись на услугу!</b>\n\n"
-    admin_text += f"👤 <b>Клиент:</b> {data['name']}\n"
-    admin_text += f"🆔 <b>Telegram ID:</b> {message.from_user.id}\n"
-    admin_text += f"📞 <b>Телефон:</b> {data['phone']}\n"
-    admin_text += f"🎯 <b>Услуга:</b> {data['service_name']}\n"
-    admin_text += f"💰 <b>Стоимость:</b> {data['service_price']} ₽\n"
-    admin_text += f"📅 <b>Дата:</b> {data['preferred_date']}\n"
-    admin_text += f"🕐 <b>Время:</b> {data['preferred_time']}\n"
-    
-    await bot.send_message(chat_id=admin, text=admin_text)
-    if 'contact_first_name' in data:
-        await bot.send_contact(chat_id=admin, phone_number=data['phone'], first_name=data['contact_first_name'], last_name=data['contact_last_name'])
-    else:
-        # try:
-        await bot.send_contact(chat_id=admin, phone_number=data['phone'], first_name=data['name'])
-        # except:
-        #     pass
-    print(data)
-    # Подтверждаем пользователю
-    await message.answer(
-        "✅ <b>Запись успешно создана!</b>\n\n"
-        f"🎯 <b>Услуга:</b> {data['service_name']}\n"
-        f"💰 <b>Стоимость:</b> {data['service_price']} ₽\n"
-        f"📅 <b>Дата:</b> {data['preferred_date']}\n"
-        f"🕐 <b>Время:</b> {data['preferred_time']}\n\n"
-        "📞 Я свяжусь с вами для подтверждения записи.\n\n"
-        "Спасибо за доверие! ❤️",
-        reply_markup=user_kb.back_mrk
-    )
-    
+    try:
+        booking = await create_booking(
+            session=session,
+            user_tg_id=message.from_user.id,
+            service_id=data['service_id'],
+            client_name=data['name'],
+            phone=data['phone'],
+            preferred_date=data['preferred_date'],
+            preferred_time=data['preferred_time']
+        )   
+        # Уведомляем админа
+        admin_text = f"🎯 <b>Новая запись на услугу!</b>\n\n"
+        admin_text += f"👤 <b>Клиент:</b> {data['name']}\n"
+        admin_text += f"🆔 <b>Telegram ID:</b> {message.from_user.id}\n"
+        admin_text += f"📞 <b>Телефон:</b> {data['phone']}\n"
+        admin_text += f"🎯 <b>Услуга:</b> {data['service_name']}\n"
+        admin_text += f"💰 <b>Стоимость:</b> {data['service_price']} ₽\n"
+        admin_text += f"📅 <b>Дата:</b> {data['preferred_date']}\n"
+        admin_text += f"🕐 <b>Время:</b> {data['preferred_time']}\n"
+        
+        try:
+            await bot.send_message(chat_id=admin, text=admin_text)
+            if 'contact_first_name' in data:
+                await bot.send_contact(
+                    chat_id=admin,
+                    phone_number=data['phone'], 
+                    first_name=data['contact_first_name'], 
+                    last_name=data['contact_last_name'])
+            else:
+                await bot.send_contact(
+                    chat_id=admin, 
+                    phone_number=data['phone'], 
+                    first_name=data['name']
+                    )
+        except Exception as admin_error:
+            print(f"Ошибка отправки уведомления админу: {admin_error}")
+            await message.answer(
+                "❌ Произошла ошибка при создании записи. Попробуйте позже.",
+                reply_markup=user_kb.back_mrk
+            )
+            return
+
+        await message.answer(
+            "✅ <b>Запись успешно создана!</b>\n\n"
+            f"🎯 <b>Услуга:</b> {data['service_name']}\n"
+            f"💰 <b>Стоимость:</b> {data['service_price']} ₽\n"
+            f"📅 <b>Дата:</b> {data['preferred_date']}\n"
+            f"🕐 <b>Время:</b> {data['preferred_time']}\n\n"
+            "📞 Я свяжусь с вами для подтверждения записи.\n\n"
+            "Спасибо за доверие! ❤️",
+            reply_markup=user_kb.back_mrk
+        )
+    except Exception as e:
+        await message.answer(
+            "❌ Произошла ошибка при создании записи. Попробуйте позже.",
+            reply_markup=user_kb.back_mrk
+        )
+        print(f"Ошибка создания записи: {e}")
     await state.clear()
 
 

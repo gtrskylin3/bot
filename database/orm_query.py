@@ -1,7 +1,9 @@
 from sqlalchemy import select, insert, update, delete
-from database.models import User, BroadcastSettings
+from database.models import User, BroadcastSettings, Booking
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 
 async def get_or_create_user(session: AsyncSession, user_tg_id: int, user_name: str) -> User:
     """Получает пользователя из БД или создает нового. Возвращает объект пользователя."""
@@ -51,4 +53,39 @@ async def update_default_broadcast_text(session: AsyncSession, new_text: str):
     return settings
 
 
+async def create_booking(
+    session: AsyncSession,
+    user_tg_id: int,
+    service_id: int,
+    client_name: str,
+    phone: str,
+    preferred_date: str,
+    preferred_time: str,
+) -> Booking:
+    """Создает новую запись"""
+    booking = Booking(
+        user_tg_id=user_tg_id,
+        service_id=service_id,
+        client_name=client_name,
+        phone=phone,
+        preferred_date=preferred_date,
+        preferred_time=preferred_time
+    )
+    session.add(booking)
+    await session.commit()
+    return booking
 
+async def get_all_bookings(session: AsyncSession):
+    """Получает все записи (for admin)"""
+    query = select(Booking).options(selectinload(Booking.service)).order_by(Booking.created_at.desc())
+    bookings = await session.scalars(query)
+    return list(bookings)
+
+async def delete_booking(session: AsyncSession, booking_id: int):
+    """Удаляет запись (for admin)"""
+    booking = await session.get(Booking, booking_id)
+    if booking:
+        await session.execute(delete(Booking).where(Booking.id == booking_id))
+        await session.commit()
+        return booking
+    return None
