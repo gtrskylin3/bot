@@ -65,25 +65,13 @@ confirm_send_default_text = InlineKeyboardMarkup(
     ]
 )
 
-
-def get_booking_delete_kb(booking_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='❌ Удалить', callback_data=f'booking_delete_{booking_id}')],
-        ]
-    )
-
-
-
-
 def get_booking_actions_kb(booking_id: int) -> InlineKeyboardMarkup:
     """Создает клавиатуру для управления записью"""
     buttons = []
     
     buttons.extend([
             [InlineKeyboardButton(text='🎉 Завершить и удалить', callback_data=f'booking_complete_{booking_id}')],
-            [InlineKeyboardButton(text='❌ Отменить и удалить', callback_data=f'booking_cancel_{booking_id}')],
-            [InlineKeyboardButton(text='🔙 Назад', callback_data='back_to_admin')]
+            [InlineKeyboardButton(text='❌ Отменить и удалить', callback_data=f'booking_cancel_{booking_id}')]
         ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

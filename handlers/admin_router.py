@@ -184,7 +184,6 @@ async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: As
 
 @admin_router.callback_query(F.data=='view_bookings')
 async def view_bookings(callback: CallbackQuery, session: AsyncSession):
-    await callback.message.delete()
     await callback.answer('')
     
     try:
@@ -215,6 +214,15 @@ async def view_bookings(callback: CallbackQuery, session: AsyncSession):
                 await callback.message.answer(
                     f"📊 <b>Показано последних 10 записей из {len(bookings)}</b>\n\n"
                     f"Для просмотра следующих записей удалите старые.",
+                    reply_markup=admin_kb.back_to_admin.as_markup()
+                )
+            else:
+                await callback.message.answer(
+                    f"📊 <b>Показано {len(bookings)} записей</b>\n\n"
+                    f"Если вы уже поработали или встреча не состоялась\n"
+                    f"<b>Завершите</b> либо <b>Отмените</b> запись\n\n"
+                    f"<b>При завершении</b> клиенту придет уведомление с просьбой об отзыве\n"
+                    f"<b>При отмене</b> пользователю придет уведомление об отмене его записи",
                     reply_markup=admin_kb.back_to_admin.as_markup()
                 )
 

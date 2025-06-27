@@ -87,5 +87,5 @@ async def delete_booking(session: AsyncSession, booking_id: int):
     if booking:
         await session.execute(delete(Booking).where(Booking.id == booking_id))
         await session.commit()
-        return booking
+        return booking.user_tg_id
     return None
