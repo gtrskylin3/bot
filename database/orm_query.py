@@ -1,8 +1,9 @@
 from sqlalchemy import select, insert, update, delete
-from database.models import User, BroadcastSettings, Booking
+from database.models import User, BroadcastSettings, Booking, Funnel, FunnelStep, FunnelProgress
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from datetime import datetime
 
 
 async def get_or_create_user(session: AsyncSession, user_tg_id: int, user_name: str) -> User:
@@ -95,3 +96,109 @@ async def delete_booking(session: AsyncSession, booking_id: int):
         await session.commit()
         return booking.user_tg_id
     return None
+
+
+# Функции для работы с воронками
+
+async def create_funnel(session: AsyncSession, name: str, description: str = None) -> Funnel:
+    """Создает новую воронку"""
+    funnel = Funnel(name=name, description=description)
+    session.add(funnel)
+    await session.commit()
+    return funnel
+
+async def get_active_funnels(session: AsyncSession) -> list[Funnel]:
+    """Получает все активные воронки"""
+    funnels = await session.scalars(select(Funnel).where(Funnel.is_active == True))
+    return list(funnels)
+
+async def get_funnel_with_steps(session: AsyncSession, funnel_id: int) -> Funnel:
+    """Получает воронку с этапами"""
+    funnel = await session.scalar(
+        select(Funnel)
+        .options(selectinload(Funnel.steps))
+        .where(Funnel.id == funnel_id)
+    )
+    return funnel
+
+async def create_funnel_step(
+    session: AsyncSession,
+    funnel_id: int,
+    order: int,
+    title: str,
+    content: str,
+    content_type: str,
+    delay_hours: int = 0,
+    is_free: bool = True,
+    file_id: str = None
+) -> FunnelStep:
+    """Создает новый этап воронки"""
+    step = FunnelStep(
+        funnel_id=funnel_id,
+        order=order,
+        title=title,
+        content=content,
+        content_type=content_type,
+        delay_hours=delay_hours,
+        is_free=is_free,
+        file_id=file_id
+    )
+    session.add(step)
+    await session.commit()
+    return step
+
+async def get_user_funnel_progress(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
+    """Получает прогресс пользователя по воронке"""
+    progress = await session.scalar(
+        select(FunnelProgress)
+        .where(FunnelProgress.user_tg_id == user_tg_id)
+        .where(FunnelProgress.funnel_id == funnel_id)
+    )
+    return progress
+
+async def start_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
+    """Начинает воронку для пользователя"""
+    # Проверяем, не начал ли уже пользователь эту воронку
+    existing_progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
+    if existing_progress:
+        return existing_progress
+    
+    # Создаем новый прогресс
+    progress = FunnelProgress(
+        user_tg_id=user_tg_id,
+        funnel_id=funnel_id,
+        current_step=1,
+    )
+    session.add(progress)
+    await session.commit()
+    return progress
+
+async def advance_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
+    """Переходит к следующему этапу воронки"""
+    progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
+    if not progress:
+        return None
+    
+    # Получаем общее количество этапов в воронке
+    funnel = await get_funnel_with_steps(session, funnel_id)
+    total_steps = len(funnel.steps)
+    
+    if progress.current_step < total_steps:
+        progress.current_step += 1
+        progress.last_activity = datetime.now()
+    else:
+        progress.is_completed = True
+        progress.completed_at = datetime.now()
+    
+    await session.commit()
+    return progress
+
+async def delete_funnel(session: AsyncSession, funnel_id: int):
+    """Удаляет воронку и все связанные с ней данные"""
+    # Удаляем прогресс пользователей
+    await session.execute(delete(FunnelProgress).where(FunnelProgress.funnel_id == funnel_id))
+    # Удаляем этапы
+    await session.execute(delete(FunnelStep).where(FunnelStep.funnel_id == funnel_id))
+    # Удаляем воронку
+    await session.execute(delete(Funnel).where(Funnel.id == funnel_id))
+    await session.commit()

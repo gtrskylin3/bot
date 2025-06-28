@@ -4,10 +4,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 admin_kb = InlineKeyboardBuilder()
 admin_kb.button(text='📤 Рассылка', callback_data='broadcast_menu')
 admin_kb.button(text='📋 Просмотр записей', callback_data='view_bookings')
-admin_kb.button(text='👥 Посмотреть список пользователей', callback_data='user_list')
 admin_kb.button(text='➕ Добавить услугу', callback_data='add_service')
 admin_kb.button(text='👀 Посмотреть услуги', callback_data='view_services')
-admin_kb.adjust(1)
+admin_kb.button(text='👥 Управление воронками', callback_data='manage_funnels')
+admin_kb.button(text='👥 Посмотреть список пользователей', callback_data='user_list')
+admin_kb.adjust(2)
 
 broadcast_menu = InlineKeyboardBuilder()
 broadcast_menu.button(text='📝 Рассылка текста', callback_data='send_all')
@@ -30,7 +31,7 @@ back_to_admin.button(text='Вернуться в меню', callback_data='back_
 back_to_admin.adjust(1)
 
 delete_confirm = InlineKeyboardBuilder() 
-delete_confirm.button(text='Да', callback_data='confirm_delete')
+delete_confirm.button(text='Да', callback_data='confirm_delete_service')
 delete_confirm.button(text='Нет', callback_data='back_to_admin')
 delete_confirm.adjust(1)
 

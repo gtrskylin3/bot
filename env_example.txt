@@ -1,0 +1,8 @@
+# Токен бота от @BotFather
+TOKEN=your_bot_token_here
+
+# URL базы данных SQLite
+DB_URL=sqlite+aiosqlite:///users.db
+
+# ID администратора (ваш Telegram ID)
+ADMIN_ID=123456789 

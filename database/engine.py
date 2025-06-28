@@ -1,8 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from database.models import Base
-import os
+from config import DB_URL
 
-engine = create_async_engine(os.getenv("DB_URL"), echo=False)
+# Проверяем наличие переменной окружения
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set")
+
+engine = create_async_engine(DB_URL, echo=False)
 
 session_maker = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 

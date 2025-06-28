@@ -145,7 +145,7 @@ async def view_services(callback: CallbackQuery, session: AsyncSession):
         for service in services_list:
             service_kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text='❌ Удалить услугу', callback_data=f'delete_{service.id}')]
+                    [InlineKeyboardButton(text='❌ Удалить услугу', callback_data=f'delete_service_{service.id}')]
                 ]
             )
             text = f'<b>{service.name}</b>\n'
@@ -160,17 +160,17 @@ async def view_services(callback: CallbackQuery, session: AsyncSession):
     await callback.message.answer('Выберите услугу для <b>удаления</b> или вернитесь в меню', reply_markup=admin_kb.back_to_admin.as_markup())
 
 
-@admin_router.callback_query(F.data.startswith('delete_'))
+@admin_router.callback_query(F.data.startswith('delete_service_'))
 async def delete_service(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await callback.message.delete()
     await callback.message.answer('Вы уверены что хотите удалить услугу?', reply_markup=admin_kb.delete_confirm.as_markup())
     await callback.answer('')
     await state.set_state(DeleteService.waiting_for_confirmation)
-    await state.update_data(service_id=callback.data.split('_')[1])
+    await state.update_data(service_id=callback.data.split('_')[2])
 
 
 
-@admin_router.callback_query(F.data=='confirm_delete', DeleteService.waiting_for_confirmation)
+@admin_router.callback_query(F.data=='confirm_delete_service', DeleteService.waiting_for_confirmation)
 async def confirm_delete(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     data = await state.get_data()
     service_id = data['service_id']
