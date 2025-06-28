@@ -3,7 +3,7 @@ from database.models import User, BroadcastSettings, Booking, Funnel, FunnelStep
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 async def get_or_create_user(session: AsyncSession, user_tg_id: int, user_name: str) -> User:
@@ -128,7 +128,6 @@ async def create_funnel_step(
     title: str,
     content: str,
     content_type: str,
-    delay_hours: int = 0,
     is_free: bool = True,
     file_id: str = None
 ) -> FunnelStep:
@@ -139,7 +138,6 @@ async def create_funnel_step(
         title=title,
         content=content,
         content_type=content_type,
-        delay_hours=delay_hours,
         is_free=is_free,
         file_id=file_id
     )
@@ -179,18 +177,53 @@ async def advance_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id:
     if not progress:
         return None
     
-    # Получаем общее количество этапов в воронке
+    # Получаем воронку с этапами
     funnel = await get_funnel_with_steps(session, funnel_id)
+    if not funnel or not funnel.steps:
+        return progress
+    
     total_steps = len(funnel.steps)
     
-    if progress.current_step < total_steps:
-        progress.current_step += 1
-        progress.last_activity = datetime.now()
-    else:
+    # Проверяем, что текущий этап существует
+    if progress.current_step > total_steps:
+        return progress
+    
+    # Получаем текущий этап
+    current_step = funnel.steps[progress.current_step - 1]
+    
+    # Если текущий этап платный, не переходим дальше
+    if not current_step.is_free:
+        return progress
+    
+    # Переходим к следующему этапу
+    progress.current_step += 1
+    progress.last_activity = datetime.now()
+    
+    # Проверяем, достигли ли мы конца курса
+    if progress.current_step > total_steps:
+        # Курс завершен - мы прошли все этапы
         progress.is_completed = True
         progress.completed_at = datetime.now()
+    else:
+        # Проверяем, не стал ли следующий этап платным
+        next_step = funnel.steps[progress.current_step - 1]
+        if not next_step.is_free:
+            # Следующий этап платный - курс завершен на бесплатной части
+            progress.is_completed = True
+            progress.completed_at = datetime.now()
     
     await session.commit()
+    return progress
+
+async def reset_user_funnel_progress(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
+    """Сбрасывает прогресс пользователя по воронке к началу"""
+    progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
+    if progress:
+        progress.current_step = 1
+        progress.is_completed = False
+        progress.completed_at = None
+        progress.last_activity = datetime.now()
+        await session.commit()
     return progress
 
 async def delete_funnel(session: AsyncSession, funnel_id: int):
@@ -202,3 +235,12 @@ async def delete_funnel(session: AsyncSession, funnel_id: int):
     # Удаляем воронку
     await session.execute(delete(Funnel).where(Funnel.id == funnel_id))
     await session.commit()
+
+async def get_user_all_funnel_progress(session: AsyncSession, user_tg_id: int) -> list[FunnelProgress]:
+    """Получает все прогрессы пользователя по воронкам"""
+    progress_list = await session.scalars(
+        select(FunnelProgress)
+        .where(FunnelProgress.user_tg_id == user_tg_id)
+        .order_by(FunnelProgress.started_at.desc())
+    )
+    return list(progress_list)

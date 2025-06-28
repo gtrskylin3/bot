@@ -77,7 +77,6 @@ class FunnelStep(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False) # "В этом уроке мы познакомимся"
     content_type: Mapped[str] = mapped_column(String(10), nullable=False) # "video" или "text"
     file_id: Mapped[str] = mapped_column(String(255), nullable=True) # ID файла в Telegram
-    delay_hours: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # Задержка перед отправкой
     is_free: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # Бесплатный ли этап
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(), nullable=False)
 

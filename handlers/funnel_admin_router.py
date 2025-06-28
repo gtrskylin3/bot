@@ -4,11 +4,18 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 
 import keyboards.funnel_kb as funnel_kb
 import filters.admin_filter as Admin
-from database.models import Funnel, FunnelStep
-from database.orm_query import get_active_funnels, get_funnel_with_steps, create_funnel, create_funnel_step, delete_funnel
+from database.models import Funnel, FunnelStep, FunnelProgress
+from database.orm_query import (
+    get_active_funnels, 
+    get_funnel_with_steps, 
+    create_funnel, 
+    create_funnel_step, 
+    delete_funnel
+)
 
 class FunnelCreation(StatesGroup):
     waiting_for_name = State()
@@ -17,7 +24,6 @@ class FunnelCreation(StatesGroup):
 class FunnelStepCreation(StatesGroup):
     waiting_for_title = State()
     waiting_for_content = State()
-    waiting_for_delay = State()
     waiting_for_step_type = State()
 
 # Создаем роутер и применяем фильтр админа
@@ -74,7 +80,7 @@ async def get_funnel_description(message: Message, state: FSMContext, session: A
             f'📋 <b>Название:</b> {data["name"]}\n'
             f'📝 <b>Описание:</b> {message.text}\n'
             f'🆔 <b>ID воронки:</b> {funnel.id}\n\n'
-            f'Теперь добавьте этапы в воронку.',
+            'Теперь добавьте этапы в воронку.',
             reply_markup=funnel_kb.funnel_manage_kb.as_markup()
         )
         # Сохраняем ID воронки для добавления этапов
@@ -96,9 +102,9 @@ async def list_funnels(callback: CallbackQuery, session: AsyncSession):
     funnels = await get_active_funnels(session)
     if funnels:
         for funnel in funnels:
-            # Получаем количество этапов
+            # Получаем количество этапов для конкретной воронки
             funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
-            steps_count = len(funnel_with_steps.steps)
+            steps_count = len(funnel_with_steps.steps) if funnel_with_steps else 0
 
             text = f'📋 <b>{funnel.name}</b>\n\n'
             if funnel.description:
@@ -118,16 +124,82 @@ async def list_funnels(callback: CallbackQuery, session: AsyncSession):
 
 # Добавление этапа воронки
 @funnel_admin_router.callback_query(F.data=='add_funnel_step')
-async def start_add_funnel_step(callback: CallbackQuery, state: FSMContext):
+async def start_add_funnel_step(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
-    await state.set_state(FunnelStepCreation.waiting_for_title)
+    
+    # Получаем список воронок для выбора
+    funnels = await get_active_funnels(session)
+    if not funnels:
+        await callback.message.answer(
+            '❌ Нет активных воронок. Сначала создайте воронку.',
+            reply_markup=funnel_kb.admin_funnel_kb.as_markup()
+        )
+        return
+    
     await callback.message.answer(
-        '📝 <b>Добавление этапа воронки</b>\n\n'
-        'Введите заголовок этапа:\n\n'
-        '<i>Например: "День 1: Основы дыхательной гимнастики"</i>\n\n'
-        'Для отмены введите /cancel'
+        '📋 Выберите воронку для добавления этапа:',
+        reply_markup=funnel_kb.get_funnel_selection_kb(funnels)
     )
+
+@funnel_admin_router.callback_query(F.data.startswith('select_funnel:'))
+async def select_funnel_for_step(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
+    try:
+        # Извлекаем ID воронки из callback_data
+        funnel_id = int(callback.data.split(':')[1])
+        funnel = await session.get(Funnel, funnel_id)
+        
+        if funnel and funnel.is_active:
+            await state.update_data(selected_funnel_id=funnel_id)
+            
+            await state.set_state(FunnelStepCreation.waiting_for_title)
+            await callback.message.answer(
+                '📝 <b>Добавление этапа воронки</b>\n\n'
+                'Введите заголовок этапа:\n\n'
+                '<i>Например: "День 1: Основы дыхательной гимнастики"</i>\n\n'
+                'Для отмены введите /cancel'
+            )
+        else:
+            await callback.message.answer('❌ Воронка не найдена или неактивна.')
+    except (ValueError, IndexError):
+        await callback.message.answer('❌ Ошибка при выборе воронки.')
+
+@funnel_admin_router.callback_query(F.data.startswith('view_funnel:'))
+async def select_funnel_for_view(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
+    try:
+        # Извлекаем ID воронки из callback_data
+        funnel_id = int(callback.data.split(':')[1])
+        funnel = await session.get(Funnel, funnel_id)
+        
+        if funnel and funnel.is_active:
+            await show_funnel_steps_for_funnel(callback.message, session, funnel)
+        else:
+            await callback.message.answer('❌ Воронка не найдена или неактивна.')
+    except (ValueError, IndexError):
+        await callback.message.answer('❌ Ошибка при выборе воронки.')
+
+@funnel_admin_router.callback_query(F.data.startswith('stats_funnel:'))
+async def select_funnel_for_stats(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
+    try:
+        # Извлекаем ID воронки из callback_data
+        funnel_id = int(callback.data.split(':')[1])
+        funnel = await session.get(Funnel, funnel_id)
+        
+        if funnel and funnel.is_active:
+            await show_funnel_stats_for_funnel(callback.message, session, funnel)
+        else:
+            await callback.message.answer('❌ Воронка не найдена или неактивна.')
+    except (ValueError, IndexError):
+        await callback.message.answer('❌ Ошибка при выборе воронки.')
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_title)
 async def get_step_title(message: Message, state: FSMContext):
@@ -135,37 +207,17 @@ async def get_step_title(message: Message, state: FSMContext):
     await state.set_state(FunnelStepCreation.waiting_for_content)
     await message.answer(
         '📄 Введите контент этапа:\n\n'
-        '<i>Текст или видео, который получит пользователь</i>\n\n'
+        '<i>Отправьте текст или видео, который получит пользователь</i>\n\n'
         'Для отмены введите /cancel'
     )
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_content)
 async def get_step_content(message: Message, state: FSMContext, session: AsyncSession):
-
     # Для текста сохраняем текст
     await state.update_data(content=message.text)
     await state.update_data(content_type='text')
     await state.update_data(file_id=None)
     
-    await state.set_state(FunnelStepCreation.waiting_for_delay)
-    await message.answer(
-        '⏰ Введите задержку перед отправкой (в часах):\n\n'
-        '<i>0 - отправить сразу, 24 - через сутки</i>\n\n'
-        'Для отмены введите /cancel'
-    )
-
-@funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_delay)
-async def get_step_delay(message: Message, state: FSMContext):
-    try:
-        delay = int(message.text)
-        if delay < 0:
-            await message.answer('❌ Задержка не может быть отрицательной. Попробуйте снова:')
-            return
-    except ValueError:
-        await message.answer('❌ Пожалуйста, введите число. Попробуйте снова:')
-        return
-    
-    await state.update_data(delay_hours=delay)
     await state.set_state(FunnelStepCreation.waiting_for_step_type)
     await message.answer(
         '💰 Выберите тип этапа:\n\n'
@@ -175,17 +227,18 @@ async def get_step_delay(message: Message, state: FSMContext):
     )
 
 @funnel_admin_router.message(F.video, FunnelStepCreation.waiting_for_content)
-async def get_step_video(message: Message, state: FSMContext, session: AsyncSession):
+async def get_step_video(message: Message, state: FSMContext):
     # Для видео сохраняем file_id и добавляем описание
     await state.update_data(file_id=message.video.file_id)
     await state.update_data(content_type='video')
     await state.update_data(content=message.caption or "Видео урок")
     
-    await state.set_state(FunnelStepCreation.waiting_for_delay)
+    await state.set_state(FunnelStepCreation.waiting_for_step_type)
     await message.answer(
-        '⏰ Введите задержку перед отправкой (в часах):\n\n'
-        '<i>0 - отправить сразу, 24 - через сутки</i>\n\n'
-        'Для отмены введите /cancel'
+        '💰 Выберите тип этапа:\n\n'
+        '🆓 <b>Бесплатный</b> - пользователь получает сразу\n'
+        '💰 <b>Платный</b> - предлагается записаться на консультацию\n\n'
+        'Выберите "бесплатный" или "платный":', reply_markup=funnel_kb.free_paid_kb
     )
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_step_type)
@@ -200,13 +253,19 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
     data = await state.get_data()
 
     try: 
-        funnels = await get_active_funnels(session)
-        if not funnels:
-            await message.answer('❌ Нет активных воронок. Сначала создайте воронку.')
+        # Используем выбранную воронку из state
+        selected_funnel_id = data.get('selected_funnel_id')
+        if not selected_funnel_id:
+            await message.answer('❌ Ошибка: воронка не выбрана.')
             await state.clear()
             return
         
-        funnel = funnels[0]
+        # Получаем выбранную воронку
+        funnel = await session.get(Funnel, selected_funnel_id)
+        if not funnel:
+            await message.answer('❌ Воронка не найдена.')
+            await state.clear()
+            return
 
         # Получаем порядковый номер этапа
         funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
@@ -220,7 +279,6 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
             title=data['title'],
             content=data['content'],
             content_type=data['content_type'],
-            delay_hours=data['delay_hours'],
             is_free=is_free,
             file_id=data.get('file_id')
         )
@@ -228,10 +286,9 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
         await state.clear()
         content_type_text = "Видео" if data['content_type'] == 'video' else "Текст"
         await message.answer(
-            f'✅ <b>Этап успешно добавлен!</b>\n\n'
+            f'✅ <b>Этап успешно добавлен в воронку "{funnel.name}"!</b>\n\n'
             f'📝 <b>Заголовок:</b> {data["title"]}\n'
             f'📄 <b>Тип контента:</b> {content_type_text}\n'
-            f'⏰ <b>Задержка:</b> {data["delay_hours"]} ч.\n'
             f'💰 <b>Тип:</b> {"Бесплатный" if is_free else "Платный"}\n'
             f'🆔 <b>ID этапа:</b> {step.id}',
             reply_markup=funnel_kb.funnel_manage_kb.as_markup()
@@ -247,30 +304,116 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
 async def view_funnel_steps(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
+    
+    funnels = await get_active_funnels(session)
+    if not funnels:
+        await callback.message.answer('❌ Нет активных воронок.')
+        return
+    
+    # Если воронка одна, показываем её этапы
+    if len(funnels) == 1:
+        funnel = funnels[0]
+        await show_funnel_steps_for_funnel(callback.message, session, funnel)
+    else:
+        # Если воронок несколько, предлагаем выбрать
+        await callback.message.answer(
+            '📋 Выберите воронку для просмотра этапов:',
+            reply_markup=funnel_kb.get_funnel_selection_kb(funnels, 'view_funnel')
+        )
 
+async def show_funnel_steps_for_funnel(message: Message, session: AsyncSession, funnel: Funnel):
+    """Показывает этапы конкретной воронки"""
+    funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
+
+    if funnel_with_steps and funnel_with_steps.steps:
+        text = f'📋 <b>Этапы воронки "{funnel.name}"</b>\n\n'
+        for step in funnel_with_steps.steps:
+            content_type_icon = "🎥" if step.content_type == 'video' else "📝"
+            text += f'{content_type_icon} <b>{step.order}. {step.title}</b>\n'
+            text += f'📄 Тип контента: {"Видео" if step.content_type == "video" else "Текст"}\n'
+            text += f'💰 Тип: {"Бесплатный" if step.is_free else "Платный"}\n\n'
+        
+        await message.answer(text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
+    else:
+        await message.answer(
+            f'📭 Этапы воронки "{funnel.name}" не найдены\n\nДобавьте первый этап!',
+            reply_markup=funnel_kb.funnel_manage_kb.as_markup()
+        )
+
+# Статистика воронки
+@funnel_admin_router.callback_query(F.data == 'funnel_stats')
+async def show_funnel_stats(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
+    funnels = await get_active_funnels(session)
+    if not funnels:
+        await callback.message.answer('❌ Нет активных воронок.')
+        return
+    
+    # Если воронка одна, показываем её статистику
+    if len(funnels) == 1:
+        funnel = funnels[0]
+        await show_funnel_stats_for_funnel(callback.message, session, funnel)
+    else:
+        # Если воронок несколько, предлагаем выбрать
+        await callback.message.answer(
+            '📋 Выберите воронку для просмотра статистики:',
+            reply_markup=funnel_kb.get_funnel_selection_kb(funnels, 'stats_funnel')
+        )
+
+async def show_funnel_stats_for_funnel(message: Message, session: AsyncSession, funnel: Funnel):
+    """Показывает статистику конкретной воронки"""
+    # Получаем статистику
+    # Общее количество участников
+    total_users = await session.scalar(
+        select(func.count(FunnelProgress.id))
+        .where(FunnelProgress.funnel_id == funnel.id)
+    )
+    
+    # Завершивших курс
+    completed_users = await session.scalar(
+        select(func.count(FunnelProgress.id))
+        .where(FunnelProgress.funnel_id == funnel.id)
+        .where(FunnelProgress.is_completed == True)
+    )
+    
+    # Активных участников (не завершивших)
+    active_users = total_users - completed_users if total_users else 0
+    
+    # Конверсия
+    conversion = (completed_users / total_users * 100) if total_users > 0 else 0
+    
+    stats_text = f'📊 <b>Статистика воронки "{funnel.name}"</b>\n\n'
+    stats_text += f'👥 <b>Всего участников:</b> {total_users}\n'
+    stats_text += f'✅ <b>Завершили курс:</b> {completed_users}\n'
+    stats_text += f'🔄 <b>В процессе:</b> {active_users}\n'
+    stats_text += f'📈 <b>Конверсия:</b> {conversion:.1f}%\n'
+    
+    await message.answer(stats_text, reply_markup=funnel_kb.admin_funnel_kb.as_markup())
+
+# Настройки воронки
+@funnel_admin_router.callback_query(F.data == 'funnel_settings')
+async def show_funnel_settings(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    
     funnels = await get_active_funnels(session)
     if not funnels:
         await callback.message.answer('❌ Нет активных воронок.')
         return
     
     funnel = funnels[0]
-    funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
-
-    if funnel_with_steps.steps:
-        text = f'📋 <b>Этапы воронки "{funnel.name}"</b>\n\n'
-        for step in funnel_with_steps.steps:
-            content_type_icon = "🎥" if step.content_type == 'video' else "📝"
-            text += f'{content_type_icon} <b>{step.order}. {step.title}</b>\n'
-            text += f'📄 Тип контента: {"Видео" if step.content_type == "video" else "Текст"}\n'
-            text += f'⏰ Задержка: {step.delay_hours} ч.\n'
-            text += f'💰 Тип: {"Бесплатный" if step.is_free else "Платный"}\n\n'
-        
-        await callback.message.answer(text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
-    else:
-        await callback.message.answer(
-            '📭 Этапы воронки не найдены\n\nДобавьте первый этап!',
-            reply_markup=funnel_kb.funnel_manage_kb.as_markup()
-        )
+    
+    settings_text = f'⚙️ <b>Настройки воронки "{funnel.name}"</b>\n\n'
+    settings_text += f'📋 <b>Название:</b> {funnel.name}\n'
+    settings_text += f'📝 <b>Описание:</b> {funnel.description}\n'
+    settings_text += f'🆔 <b>ID:</b> {funnel.id}\n'
+    settings_text += f'📅 <b>Создана:</b> {funnel.created_at.strftime("%d.%m.%Y")}\n'
+    settings_text += f'🔄 <b>Статус:</b> {"Активна" if funnel.is_active else "Неактивна"}\n\n'
+    settings_text += '🔧 <i>Функция редактирования настроек будет добавлена позже</i>'
+    
+    await callback.message.answer(settings_text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
 
 # Удаление воронки
 @funnel_admin_router.callback_query(F.data=='delete_funnel')
@@ -278,9 +421,9 @@ async def confirm_delete_funnel(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer('')
     await callback.message.answer(
-        '⚠️ <b>Внимание!</b>\n\n'
-        'Вы уверены, что хотите удалить воронку?\n'
-        'Это действие нельзя отменить.',
+        '⚠️ <b>Подтверждение удаления</b>\n\n'
+        'Вы уверены, что хотите удалить воронку?\n\n'
+        '<b>Это действие нельзя отменить!</b>',
         reply_markup=funnel_kb.delete_funnel_confirm
     )
 
@@ -289,18 +432,18 @@ async def delete_funnel_action(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
     
+    funnels = await get_active_funnels(session)
+    if not funnels:
+        await callback.message.answer('❌ Нет активных воронок.')
+        return
+    
+    funnel = funnels[0]
+    
     try:
-        # Получаем активную воронку
-        funnels = await get_active_funnels(session)
-        if not funnels:
-            await callback.message.answer('❌ Нет активных воронок.')
-            return
-
-        funnel = funnels[0]
         await delete_funnel(session, funnel.id)
-
         await callback.message.answer(
-            f'✅ Воронка "{funnel.name}" успешно удалена!',
+            f'✅ <b>Воронка "{funnel.name}" успешно удалена!</b>\n\n'
+            'Все этапы и прогресс пользователей также удалены.',
             reply_markup=funnel_kb.admin_funnel_kb.as_markup()
         )
     except Exception as e:
