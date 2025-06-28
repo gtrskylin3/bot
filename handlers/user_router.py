@@ -2,7 +2,7 @@ import phonenumbers
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from database.models import User, Service
-from database.orm_query import get_or_create_user, deactivate_user, create_booking
+from database.orm_query import get_or_create_user, deactivate_user, create_booking, get_user_bookings
 
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
@@ -125,6 +125,12 @@ async def cancel_signup(message: Message, state: FSMContext):
 
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    book_user = await get_user_bookings(session, user_id=callback.from_user.id)
+    print(book_user)
+    if book_user >= 3:
+        await callback.message.answer("Вы не можете сделать больше трёх записей\nПожалуйста подождите я c вами свяжусь")
+        await callback.answer('Более 3 записей недопустимо')
+        return
     service_id = int(callback.data.split('_')[1])
     service = await session.scalar(select(Service).where(Service.id == service_id))
     

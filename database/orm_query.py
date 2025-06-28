@@ -81,6 +81,12 @@ async def get_all_bookings(session: AsyncSession):
     bookings = await session.scalars(query)
     return list(bookings)
 
+async def get_user_bookings(session: AsyncSession, user_id: int):
+    """Получает записи пользователя по его id"""
+    user_bookings = await session.scalars(select(Booking).where(Booking.user_tg_id == user_id))
+    return len(list(user_bookings))
+
+
 async def delete_booking(session: AsyncSession, booking_id: int):
     """Удаляет запись (for admin)"""
     booking = await session.get(Booking, booking_id)
