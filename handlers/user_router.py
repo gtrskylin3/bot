@@ -1,7 +1,8 @@
+import phonenumbers
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from database.models import User, Service
-from database.orm_query import get_or_create_user, deactivate_user, create_booking
+from database.orm_query import get_or_create_user, deactivate_user, create_booking, get_user_bookings
 
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
@@ -124,6 +125,12 @@ async def cancel_signup(message: Message, state: FSMContext):
 
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    book_user = await get_user_bookings(session, user_id=callback.from_user.id)
+    print(book_user)
+    if book_user >= 3:
+        await callback.message.answer("Вы не можете сделать больше трёх записей\nПожалуйста подождите я c вами свяжусь")
+        await callback.answer('Более 3 записей недопустимо')
+        return
     service_id = int(callback.data.split('_')[1])
     service = await session.scalar(select(Service).where(Service.id == service_id))
     
@@ -141,13 +148,14 @@ async def start_signup(callback: CallbackQuery, state: FSMContext, session: Asyn
         await callback.message.answer("❌ Услуга не найдена")
         await callback.answer()
 
-@user_router.message(F.text, Signup.waiting_for_name)
+@user_router.message(F.text.isalpha(), Signup.waiting_for_name)
 async def get_name(message: Message, state: FSMContext):
-    if len(message.text.strip()) < 2:
+    name = message.text.strip().title()
+    if len(name) < 2:
         await message.answer("❌ Имя должно содержать минимум 2 символа. Попробуйте снова:")
         return
     
-    await state.update_data(name=message.text.strip())
+    await state.update_data(name=name)
     await state.set_state(Signup.waiting_for_phone)
     contact_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="📞 Поделиться контактом", request_contact=True)]],
@@ -167,25 +175,30 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot):
     if message.contact:
         contact: Contact = message.contact
         # Сохраняем данные контакта
+        phone=contact.phone_number
+        if phone.startswith('8') or phone.startswith('7'):
+            phone = '+7' + phone[1:]
         await state.update_data(
-            phone=contact.phone_number,
+            phone=phone,
             contact_first_name=contact.first_name,
             contact_last_name=contact.last_name
         )
         await state.set_state(Signup.waiting_for_date)
     else:
+        phone = message.text.strip()
+        if phone.startswith('8'):
+            phone = '+7' + phone[1:]
+        phone = phone.replace(' ', '')
         try:
-            phone = message.text.strip()
-            # Простая валидация телефона
-            if not (phone.startswith('+7') or phone.startswith('8')) or len(phone) < 10:
+            parsed_phone = phonenumbers.parse(phone, "RU")
+            if not phonenumbers.is_valid_number(parsed_phone):
                 await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
                 return
-            if phone.startswith('8'):
-                phone = '+7' + phone[1:]
-            phone = phone.replace(' ', '')
+            
             await state.update_data(phone=phone)
             await state.set_state(Signup.waiting_for_date)
-        except:
+            #валидация телефона
+        except phonenumbers.NumberParseException:
             await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
             return
     await message.answer(
@@ -195,28 +208,40 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot):
     reply_markup=ReplyKeyboardRemove()
     )
 
-@user_router.message(Signup.waiting_for_date)
+    
+
+@user_router.message(F.text.split('.'), Signup.waiting_for_date)
 async def get_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
+    current_date = datetime.now()
+    
     # Простая валидация даты
     try:
-        datetime.strptime(date_text, '%d.%m')
+        # Парсим введенную дату (добавляем текущий год)
+        input_date = datetime.strptime(f"{date_text}.{current_date.year}", '%d.%m.%Y')
+        # Проверяем, что дата не в прошлом
+        if input_date.date() < current_date.date():
+            await message.answer("❌ Вы не можете выбрать прошедшую дату. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>")
+            return
+            
+        date_text = date_text.split('.')
+        if len(date_text[1]) == 1:
+            date_text[1] = '0' + date_text[1]
+        date_text[1] = month_filter[date_text[1]]
+        date_text = ' '.join(date_text)
+        await state.update_data(preferred_date=date_text)
+        await state.set_state(Signup.waiting_for_time)
+        await message.answer(
+            "🕐 Введите предпочитаемое время:\n\n"
+            "<i>Формат: ЧЧ:ММ (например: 14:00)</i>\n\n"
+            "<i>Для отмены записи введите /cancel</i>"
+    )
+        
     except ValueError:
         await message.answer("❌ Неверный формат даты. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>")
         return
     
-    date_text = date_text.split('.')
-    if len(date_text[1]) == 1:
-        date_text[1] = '0' + date_text[1]
-    date_text[1] = month_filter[date_text[1]]
-    date_text = ' '.join(date_text)
-    await state.update_data(preferred_date=date_text)
-    await state.set_state(Signup.waiting_for_time)
-    await message.answer(
-        "🕐 Введите предпочитаемое время:\n\n"
-        "<i>Формат: ЧЧ:ММ (например: 14:00)</i>\n\n"
-        "<i>Для отмены записи введите /cancel</i>"
-    )
+    
 
 @user_router.message(Signup.waiting_for_time)
 async def get_time(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
