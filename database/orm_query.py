@@ -112,6 +112,11 @@ async def get_active_funnels(session: AsyncSession) -> list[Funnel]:
     funnels = await session.scalars(select(Funnel).where(Funnel.is_active == True))
     return list(funnels)
 
+async def get_all_funnels(session: AsyncSession) -> list[Funnel]:
+    """Получает все воронки"""
+    funnels = await session.scalars(select(Funnel))
+    return list(funnels)
+
 async def get_funnel_with_steps(session: AsyncSession, funnel_id: int) -> Funnel:
     """Получает воронку с этапами"""
     funnel = await session.scalar(
@@ -120,6 +125,16 @@ async def get_funnel_with_steps(session: AsyncSession, funnel_id: int) -> Funnel
         .where(Funnel.id == funnel_id)
     )
     return funnel
+
+async def deactivate_or_activate_funnel(session: AsyncSession, funnel_id: int, is_active: bool):
+    """Деактивирует воронку"""
+    funnel = await session.get(Funnel, funnel_id)
+    if funnel:
+        funnel.is_active = is_active
+        await session.commit()
+        return funnel
+    return None
+
 
 async def create_funnel_step(
     session: AsyncSession,

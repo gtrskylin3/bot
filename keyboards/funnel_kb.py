@@ -34,15 +34,20 @@ def get_course_selection_kb(funnels):
     return kb.as_markup()
 
 # Клавиатура для управления конкретной воронкой
-funnel_manage_kb = InlineKeyboardBuilder()
-funnel_manage_kb.button(text='➕ Добавить этап', callback_data='add_funnel_step')
-funnel_manage_kb.button(text='📋 Этапы воронки', callback_data='view_funnel_steps')
-funnel_manage_kb.button(text='⚙️ Настройки', callback_data='funnel_settings')
-funnel_manage_kb.button(text='❌ Удалить воронку', callback_data='delete_funnel')
-funnel_manage_kb.button(text='🔙 В главное меню', callback_data='back_to_admin')
-funnel_manage_kb.adjust(2)
-
+def get_funnel_manage_kb(funnel):
+    funnel_manage_kb = InlineKeyboardBuilder()
+    funnel_manage_kb.button(text='➕ Добавить этап', callback_data=f'add_funnel_step:{funnel.id}')
+    funnel_manage_kb.button(text='📋 Этапы воронки', callback_data=f'view_funnel_steps:{funnel.id}')
+    if funnel.is_active:
+        funnel_manage_kb.button(text='🔄 Деактивировать воронку', callback_data=f'deactivate_funnel:{funnel.id}')
+    else:
+        funnel_manage_kb.button(text='🔄 Активировать воронку', callback_data=f'activate_funnel:{funnel.id}')
+    funnel_manage_kb.button(text='❌ Удалить воронку', callback_data=f'delete_funnel:{funnel.id}')
+    funnel_manage_kb.button(text='🔙 В главное меню', callback_data='back_to_admin')
+    funnel_manage_kb.adjust(2)
+    return funnel_manage_kb.as_markup()
 # Клавиатура подтверждения удаления
+
 delete_funnel_confirm = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='✅ Да, удалить', callback_data='confirm_delete_funnel')],
     [InlineKeyboardButton(text='❌ Отмена', callback_data='list_funnels')]

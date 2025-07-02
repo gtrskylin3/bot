@@ -14,7 +14,9 @@ from database.orm_query import (
     get_funnel_with_steps, 
     create_funnel, 
     create_funnel_step, 
-    delete_funnel
+    delete_funnel,
+    deactivate_or_activate_funnel,
+    get_all_funnels
 )
 
 class FunnelCreation(StatesGroup):
@@ -81,7 +83,7 @@ async def get_funnel_description(message: Message, state: FSMContext, session: A
             f'📝 <b>Описание:</b> {message.text}\n'
             f'🆔 <b>ID воронки:</b> {funnel.id}\n\n'
             'Теперь добавьте этапы в воронку.',
-            reply_markup=funnel_kb.funnel_manage_kb.as_markup()
+            reply_markup=funnel_kb.get_funnel_manage_kb(funnel)
         )
         # Сохраняем ID воронки для добавления этапов
         await state.update_data(current_funnel_id=funnel.id)
@@ -99,7 +101,7 @@ async def get_funnel_description(message: Message, state: FSMContext, session: A
 async def list_funnels(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
-    funnels = await get_active_funnels(session)
+    funnels = await get_all_funnels(session)
     if funnels:
         for funnel in funnels:
             # Получаем количество этапов для конкретной воронки
@@ -111,10 +113,11 @@ async def list_funnels(callback: CallbackQuery, session: AsyncSession):
                 text += f'📄 {funnel.description}\n\n'
             text += f'🆔 <b>ID:</b> {funnel.id}\n'
             text += f'📊 <b>Этапов:</b> {steps_count}\n'
+            text += f'🔄 <b>Статус:</b> {"Активна" if funnel.is_active else "Неактивна"}\n\n'
             text += f'📅 <b>Создана:</b> {funnel.created_at.strftime("%d.%m.%Y")}\n'
 
             # Кнопка управления воронкой
-            manage_kb = funnel_kb.funnel_manage_kb.as_markup()
+            manage_kb = funnel_kb.get_funnel_manage_kb(funnel)
             await callback.message.answer(text, reply_markup=manage_kb)
     else:
         await callback.message.answer(
@@ -291,7 +294,7 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
             f'📄 <b>Тип контента:</b> {content_type_text}\n'
             f'💰 <b>Тип:</b> {"Бесплатный" if is_free else "Платный"}\n'
             f'🆔 <b>ID этапа:</b> {step.id}',
-            reply_markup=funnel_kb.funnel_manage_kb.as_markup()
+            reply_markup=funnel_kb.get_funnel_manage_kb(funnel)
         )
     except Exception as e:
         await message.answer(
@@ -333,11 +336,11 @@ async def show_funnel_steps_for_funnel(message: Message, session: AsyncSession, 
             text += f'📄 Тип контента: {"Видео" if step.content_type == "video" else "Текст"}\n'
             text += f'💰 Тип: {"Бесплатный" if step.is_free else "Платный"}\n\n'
         
-        await message.answer(text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
+        await message.answer(text, reply_markup=funnel_kb.get_funnel_manage_kb(funnel))
     else:
         await message.answer(
             f'📭 Этапы воронки "{funnel.name}" не найдены\n\nДобавьте первый этап!',
-            reply_markup=funnel_kb.funnel_manage_kb.as_markup()
+            reply_markup=funnel_kb.get_funnel_manage_kb(funnel)
         )
 
 # Статистика воронки
@@ -393,33 +396,67 @@ async def show_funnel_stats_for_funnel(message: Message, session: AsyncSession, 
     await message.answer(stats_text, reply_markup=funnel_kb.admin_funnel_kb.as_markup())
 
 # Настройки воронки
-@funnel_admin_router.callback_query(F.data == 'funnel_settings')
-async def show_funnel_settings(callback: CallbackQuery, session: AsyncSession):
+# @funnel_admin_router.callback_query(F.data == 'funnel_settings')
+# async def show_funnel_settings(callback: CallbackQuery, session: AsyncSession):
+#     await callback.message.delete()
+#     await callback.answer('')
+    
+#     funnels = await get_active_funnels(session)
+#     if not funnels:
+#         await callback.message.answer('❌ Нет активных воронок.')
+#         return
+    
+#     funnel = funnels[0]
+    
+#     settings_text = f'⚙️ <b>Настройки воронки "{funnel.name}"</b>\n\n'
+#     settings_text += f'📋 <b>Название:</b> {funnel.name}\n'
+#     settings_text += f'📝 <b>Описание:</b> {funnel.description}\n'
+#     settings_text += f'🆔 <b>ID:</b> {funnel.id}\n'
+#     settings_text += f'📅 <b>Создана:</b> {funnel.created_at.strftime("%d.%m.%Y")}\n'
+#     settings_text += f'🔄 <b>Статус:</b> {"Активна" if funnel.is_active else "Неактивна"}\n\n'
+#     settings_text += '🔧 <i>Функция редактирования настроек будет добавлена позже</i>'
+    
+#     await callback.message.answer(settings_text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
+
+@funnel_admin_router.callback_query(F.data.startswith('deactivate_funnel:'))
+async def deactivate_funnel_action(callback: CallbackQuery, session: AsyncSession):
     await callback.message.delete()
     await callback.answer('')
-    
-    funnels = await get_active_funnels(session)
-    if not funnels:
-        await callback.message.answer('❌ Нет активных воронок.')
+    funnel_id = int(callback.data.split(':')[1])
+    funnel = await session.get(Funnel, funnel_id)
+    if not funnel:
+        await callback.message.answer('❌ Воронка не найдена.')
         return
-    
-    funnel = funnels[0]
-    
-    settings_text = f'⚙️ <b>Настройки воронки "{funnel.name}"</b>\n\n'
-    settings_text += f'📋 <b>Название:</b> {funnel.name}\n'
-    settings_text += f'📝 <b>Описание:</b> {funnel.description}\n'
-    settings_text += f'🆔 <b>ID:</b> {funnel.id}\n'
-    settings_text += f'📅 <b>Создана:</b> {funnel.created_at.strftime("%d.%m.%Y")}\n'
-    settings_text += f'🔄 <b>Статус:</b> {"Активна" if funnel.is_active else "Неактивна"}\n\n'
-    settings_text += '🔧 <i>Функция редактирования настроек будет добавлена позже</i>'
-    
-    await callback.message.answer(settings_text, reply_markup=funnel_kb.funnel_manage_kb.as_markup())
+    await deactivate_or_activate_funnel(session, funnel.id, False)
+    await callback.message.answer(f'✅ Воронка "{funnel.name}" успешно деактивирована.\nТеперь пользователи не могут проходить её.', reply_markup=funnel_kb.get_funnel_manage_kb(funnel))
+
+@funnel_admin_router.callback_query(F.data.startswith('activate_funnel:'))
+async def activate_funnel_action(callback: CallbackQuery, session: AsyncSession):
+    await callback.message.delete()
+    await callback.answer('')
+    funnel_id = int(callback.data.split(':')[1])
+    funnel = await session.get(Funnel, funnel_id)
+    if not funnel:
+        await callback.message.answer('❌ Воронка не найдена.')
+        return
+    await deactivate_or_activate_funnel(session, funnel.id, True)
+    await callback.message.answer(f'✅ Воронка "{funnel.name}" успешно активирована.\nТеперь пользователи могут проходить её.', reply_markup=funnel_kb.get_funnel_manage_kb(funnel))
 
 # Удаление воронки
-@funnel_admin_router.callback_query(F.data=='delete_funnel')
-async def confirm_delete_funnel(callback: CallbackQuery):
+@funnel_admin_router.callback_query(F.data.startswith('delete_funnel:'))
+async def confirm_delete_funnel(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
+    current_state = await state.get_state()
+    if current_state is not None:
+        await state.clear()
+    funnel_id = int(callback.data.split(':')[1])
+    funnel = await session.get(Funnel, funnel_id)
+    if not funnel:
+        await callback.message.answer('❌ Воронка не найдена.')
+        return
+    await state.update_data(funnel_id=funnel_id)
+    print(state)
     await callback.message.answer(
         '⚠️ <b>Подтверждение удаления</b>\n\n'
         'Вы уверены, что хотите удалить воронку?\n\n'
@@ -428,17 +465,16 @@ async def confirm_delete_funnel(callback: CallbackQuery):
     )
 
 @funnel_admin_router.callback_query(F.data=='confirm_delete_funnel')
-async def delete_funnel_action(callback: CallbackQuery, session: AsyncSession):
+async def delete_funnel_action(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
-    
-    funnels = await get_active_funnels(session)
-    if not funnels:
-        await callback.message.answer('❌ Нет активных воронок.')
+    data = await state.get_data()
+    funnel_id = data.get('funnel_id')
+    funnel = await session.get(Funnel, funnel_id)
+    if not funnel:
+        await callback.message.answer('❌ Воронка не найдена.')
         return
-    
-    funnel = funnels[0]
-    
+    await state.clear()
     try:
         await delete_funnel(session, funnel.id)
         await callback.message.answer(
