@@ -43,7 +43,7 @@ def get_funnel_manage_kb(funnel):
     else:
         funnel_manage_kb.button(text='🔄 Активировать воронку', callback_data=f'activate_funnel:{funnel.id}')
     funnel_manage_kb.button(text='❌ Удалить воронку', callback_data=f'delete_funnel:{funnel.id}')
-    funnel_manage_kb.button(text='🔙 В главное меню', callback_data='back_to_admin')
+    funnel_manage_kb.button(text='🔙 Назад', callback_data='manage_funnels')
     funnel_manage_kb.adjust(2)
     return funnel_manage_kb.as_markup()
 # Клавиатура подтверждения удаления
