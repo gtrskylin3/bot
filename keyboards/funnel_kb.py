@@ -63,6 +63,7 @@ funnel_next_kb = InlineKeyboardMarkup(inline_keyboard=[
 # Клавиатура для платных этапов (когда прохождение останавливается)
 funnel_paid_stop_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='💼 Записаться', callback_data='service_list')],
+    [InlineKeyboardButton(text='📞 Связаться с психологом', url='https://t.me/Olesja_Chernova')],
     [InlineKeyboardButton(text='📚 Дополнительные материалы', callback_data='more_materials')],
     [InlineKeyboardButton(text='🔄 Начать курс заново', callback_data='restart_course')],
     [InlineKeyboardButton(text='🔙 В главное меню', callback_data='back')]
@@ -76,18 +77,10 @@ funnel_complete_kb = InlineKeyboardMarkup(inline_keyboard=[
 
 # Клавиатура для продолжения после платного этапа
 funnel_continue_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='💼 Записаться на консультацию', callback_data='service_list')],
-    [InlineKeyboardButton(text='📞 Связаться с психологом', callback_data='consultation_request')],
-    [InlineKeyboardButton(text='📚 Дополнительные материалы', callback_data='more_materials')],
+    [InlineKeyboardButton(text='📞 Написать психологу', url='https://t.me/Olesja_Chernova')],
     [InlineKeyboardButton(text='🔙 В главное меню', callback_data='back')]
 ])
 
-# Устаревшие клавиатуры (оставляем для совместимости)
-funnel_paid_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='💳 Оплатить курс', callback_data='pay_course')],
-    [InlineKeyboardButton(text='📞 Связаться с психологом', callback_data='contact_psychologist')],
-    [InlineKeyboardButton(text='🔙 В главное меню', callback_data='back')]
-]) 
 
 free_paid_kb = ReplyKeyboardMarkup(
     keyboard=[

@@ -55,7 +55,7 @@ async def service_list(callback: CallbackQuery, session: AsyncSession):
                 [InlineKeyboardButton(text='Записаться', callback_data=f'signup_{service.id}')]
             ])
             text = f'<b>{service.name}</b>\n\n'
-            text += f'📝<b>Описание:</b>\n{service.description}\n'
+            text += f'📝<b>Описание:</b>\n{service.description}\n\n'
             text += f'💰<b>Цена:</b> {service.price} ₽\n'
             if service.duration > 60:
                 text += f'⏱<b>Длительность:</b> {(service.duration / 60):.2f} ч.\n\n'
