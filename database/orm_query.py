@@ -214,18 +214,11 @@ async def advance_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id:
     progress.current_step += 1
     progress.last_activity = datetime.now()
     
-    # Проверяем, достигли ли мы конца курса
+    # Проверяем, достигли ли мы конца курса (только если это последний этап)
     if progress.current_step > total_steps:
         # Курс завершен - мы прошли все этапы
         progress.is_completed = True
         progress.completed_at = datetime.now()
-    else:
-        # Проверяем, не стал ли следующий этап платным
-        next_step = funnel.steps[progress.current_step - 1]
-        if not next_step.is_free:
-            # Следующий этап платный - курс завершен на бесплатной части
-            progress.is_completed = True
-            progress.completed_at = datetime.now()
     
     await session.commit()
     return progress
@@ -259,3 +252,4 @@ async def get_user_all_funnel_progress(session: AsyncSession, user_tg_id: int) -
         .order_by(FunnelProgress.started_at.desc())
     )
     return list(progress_list)
+

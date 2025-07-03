@@ -34,6 +34,24 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
         )
         return
     
+    total_steps = len(funnel_with_steps.steps)
+
+    # НОВАЯ ПРОВЕРКА: Если курс помечен как завершенный, но этапов стало больше
+    if progress.is_completed and progress.current_step < total_steps:
+        # Проверяем, есть ли бесплатные этапы после текущего
+        has_free_steps_ahead = False
+        for i in range(progress.current_step - 1, total_steps):  # -1 потому что индексация с 0
+            step = funnel_with_steps.steps[i]
+            if step.is_free:
+                has_free_steps_ahead = True
+                break
+        
+        # Если есть бесплатные этапы впереди, снимаем флаг завершения
+        if has_free_steps_ahead:
+            progress.is_completed = False
+            progress.completed_at = None
+            await session.commit()
+
     # Проверяем, что текущий этап существует
     if progress.current_step > len(funnel_with_steps.steps) or progress.current_step < 1:
         await message.answer('❌ Этап не найден')
@@ -41,16 +59,28 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
     
     current_step = funnel_with_steps.steps[progress.current_step - 1]
     
+    
     # Формируем текст сообщения
     step_text = f'📚 <b>{current_step.title}</b>\n\n'
     step_text += f'{current_step.content}\n\n'
     
     # Определяем клавиатуру в зависимости от типа этапа
     if current_step.is_free:
-        # Бесплатный этап - показываем кнопку "Следующий урок"
-        reply_markup = funnel_kb.funnel_next_kb
+        # Бесплатный этап
+        if progress.current_step == total_steps:
+            # Это последний этап - курс завершен
+            progress.is_completed = True
+            progress.completed_at = datetime.now()
+            await session.commit()
+            
+            step_text += '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
+            step_text += 'Теперь вы можете записаться на индивидуальную консультацию.'
+            reply_markup = funnel_kb.funnel_complete_kb
+        else:
+            # Показываем кнопку "Следующий урок"
+            reply_markup = funnel_kb.funnel_next_kb
     else:
-        # Платный этап - помечаем курс как завершенный и предлагаем записаться
+        # Платный этап - курс завершен на платной части
         progress.is_completed = True
         progress.completed_at = datetime.now()
         await session.commit()
@@ -159,28 +189,20 @@ async def next_funnel_step(callback: CallbackQuery, session: AsyncSession, state
         return
     
     # Проверяем, завершен ли курс
-    if user_progress.is_completed:
-        await callback.message.answer(
-            '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
-            'Теперь вы можете записаться на индивидуальную консультацию.',
-            reply_markup=funnel_kb.funnel_complete_kb
-        )
-        return
+    # if user_progress.is_completed:
+    #     await callback.message.answer(
+    #         '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
+    #         'Теперь вы можете записаться на индивидуальную консультацию.',
+    #         reply_markup=funnel_kb.funnel_complete_kb
+    #     )
+    #     return
     
     # Переходим к следующему этапу
     updated_progress = await advance_user_funnel(session, callback.from_user.id, current_funnel_id)
     
     if updated_progress:
-        # Проверяем, завершился ли курс после перехода
-        if updated_progress.is_completed:
-            await callback.message.answer(
-                '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
-                'Теперь вы можете записаться на индивидуальную консультацию.',
-                reply_markup=funnel_kb.funnel_complete_kb
-            )
-        else:
-            # Отправляем следующий этап
-            await send_funnel_step(callback.message, session, updated_progress, current_funnel)
+        # Отправляем следующий этап (логика завершения обрабатывается в send_funnel_step)
+        await send_funnel_step(callback.message, session, updated_progress, current_funnel)
     else:
         await callback.message.answer('❌ Ошибка при переходе к следующему этапу.')
 
@@ -218,11 +240,16 @@ async def show_funnel_progress(callback: CallbackQuery, session: AsyncSession, s
     progress_text += f'📈 <b>Этап:</b> {user_progress.current_step} из {total_steps}\n'
     progress_text += f'📅 <b>Начато:</b> {user_progress.started_at.strftime("%d.%m.%Y")}\n'
     
-    if user_progress.is_completed:
+    if user_progress.is_completed and user_progress.current_step == total_steps:
         progress_text += f'✅ <b>Статус:</b> Завершено\n'
         progress_text += f'🎯 <b>Завершено:</b> {user_progress.completed_at.strftime("%d.%m.%Y")}\n'
     else:
         progress_text += f'🔄 <b>Статус:</b> В процессе\n'
+        # Сбрасываем флаг только если он был установлен неправильно
+        if user_progress.is_completed:
+            user_progress.is_completed = False
+            user_progress.completed_at = None
+            await session.commit()
         
         # Показываем информацию о следующем этапе
         if user_progress.current_step <= total_steps and funnel_with_steps:
@@ -314,12 +341,17 @@ async def show_my_courses(callback: CallbackQuery, session: AsyncSession, state:
             text += f'📋 <b>{funnel.name}</b>\n'
             text += f'📈 Прогресс: {progress.current_step} из {total_steps}\n'
             
-            if progress.is_completed:
+            if progress.is_completed and progress.current_step == total_steps:
                 text += f'✅ Статус: Завершен\n'
                 text += f'🎯 Завершен: {progress.completed_at.strftime("%d.%m.%Y")}\n'
             else:
                 text += f'🔄 Статус: В процессе\n'
                 text += f'📅 Начат: {progress.started_at.strftime("%d.%m.%Y")}\n'
+                # Сбрасываем флаг только если он был установлен неправильно
+                if progress.is_completed:
+                    progress.is_completed = False
+                    progress.completed_at = None
+                    await session.commit()
             
             text += '\n'
     
