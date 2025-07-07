@@ -16,6 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from filters.admin_filter import admin
 from datetime import datetime
 from filters.month_filter import month_filter
+import os
 
 class Signup(StatesGroup):
     waiting_for_name = State()
@@ -27,7 +28,8 @@ CHANNEL_ID = -1002726677960
 
 user_router = Router()
 user_router.startup.register(set_user_menu)
-image = FSInputFile("start.webp", filename='olesya.webp')
+image_path = os.path.join(os.path.dirname(__file__), "start.webp")
+image = FSInputFile(image_path, filename='olesya.webp')
 
 
 @user_router.message(CommandStart())

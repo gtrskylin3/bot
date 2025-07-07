@@ -18,12 +18,6 @@ ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
 # ID канала для подписки
 CHANNEL_ID = -1002726677960
 
-# Рабочие часы
-WORKING_HOURS = {
-    'start': 9,
-    'end': 20
-}
-
 # Ограничения
 MAX_BOOKINGS_PER_USER = 3
 
