@@ -28,7 +28,7 @@ CHANNEL_ID = -1002726677960
 
 user_router = Router()
 user_router.startup.register(set_user_menu)
-image_path = os.path.join(os.path.dirname(__file__), "start.webp")
+image_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "start.webp")
 image = FSInputFile(image_path, filename='olesya.webp')
 
 
