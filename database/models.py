@@ -12,7 +12,7 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(primary_key=True, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    
+    phone: Mapped[str | None] = mapped_column(String(20))
     # Связь с записями
     bookings: Mapped[list["Booking"]] = relationship(back_populates="user")
     # Связь с прогрессом воронки

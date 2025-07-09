@@ -57,13 +57,16 @@ async def send_all(callback: CallbackQuery, session: AsyncSession):
     await callback.answer('')
     users = await session.scalars(select(User))
     users = users.all()
-    text = []
+    text = ["Список пользователей"]
     if users:
-        for user in users:
+        for user in users[:50]:
             status = 'Активный'
             if not user.is_active:
                 status = 'Неактивный'
-            text.append(f"Имя пользователя: {user.name}\nID пользователя: {user.tg_id}\nCтатус пользователя: <b>{status}</b>")
+            text.append(f"Имя пользователя: {user.name}\nID пользователя: {user.tg_id}\nCтатус пользователя: <b>{status}</b>\n"
+                        f"Телефон пользователя: {user.phone if user.phone else "<b>Не указан</b>"}")
+        if len(users) > 50:
+            text.append(f"И еще <b>{len(users) - 50}</b> пользователей")
         await callback.message.answer(text='\n\n'.join(i for i in text), reply_markup=admin_kb.admin_kb.as_markup())
     else:
         await callback.message.answer('Список пользователей пуст\nПопробуйте ещё раз', reply_markup=admin_kb.admin_kb.as_markup())

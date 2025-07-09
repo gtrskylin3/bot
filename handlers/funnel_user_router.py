@@ -1,8 +1,9 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State 
 from datetime import datetime
 
 import keyboards.funnel_kb as funnel_kb
@@ -14,12 +15,19 @@ from database.orm_query import (
     get_funnel_with_steps, 
     advance_user_funnel,
     reset_user_funnel_progress,
-    get_user_all_funnel_progress
+    get_user_all_funnel_progress,
+    check_user_phone,
+    update_phone
 )
 from database.models import FunnelProgress, Funnel
+import phonenumbers
 
 # Создаем роутер для пользователей в воронке
 funnel_user_router = Router()
+
+class Register(StatesGroup):
+    waiting_for_phone = State()
+
 
 # Функция для отправки этапа воронки
 async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel):
@@ -105,6 +113,18 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
 # Показ списка доступных курсов
 @funnel_user_router.callback_query(F.data=='start_funnel')
 async def show_available_courses(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+    phone = await check_user_phone(session, callback.from_user.id)
+    print(phone)
+    if phone is None:
+        await callback.answer('')
+        await state.set_state(Register.waiting_for_phone)
+        await callback.message.answer("<b>Для прохождения курса:</b>\n\n"
+                                      "📞 Введите ваш номер телефона:\n"
+                                    "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
+                                    "<i>Отправте свой номер в чат</i>\n<i>Или поделитесь контктом нажав на кнопку</i>\n\n"
+                                    "<i>Для отмены записи введите /cancel</i>",
+                                      reply_markup=user_kb.contact_kb)
+        return
     await callback.answer('')
     
     funnels = await get_active_funnels(session)
@@ -144,6 +164,47 @@ async def start_course_for_user(message: Message, session: AsyncSession, funnel:
     
     # Отправляем первый этап
     await send_funnel_step(message, session, progress, funnel)
+
+
+@funnel_user_router.message(Register.waiting_for_phone)
+async def get_phone(message: Message, state: FSMContext, session: AsyncSession):
+    if message.contact:
+        contact = message.contact
+        # Сохраняем данные контакта
+        phone=contact.phone_number
+        if phone.startswith('8') or phone.startswith('7'):
+            phone = '+7' + phone[1:]
+        await update_phone(session, message.from_user.id, phone)
+        await state.update_data(
+            phone=phone,
+            contact_first_name=contact.first_name,
+            contact_last_name=contact.last_name
+        )
+    else:
+        phone = message.text.strip()
+        if phone.startswith('8'):
+            phone = '+7' + phone[1:]
+        phone = phone.replace(' ', '')
+        try:
+            parsed_phone = phonenumbers.parse(phone, "RU")
+            if not phonenumbers.is_valid_number(parsed_phone):
+                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+                return
+            
+            await state.update_data(phone=phone)
+            await update_phone(session, message.from_user.id, phone)
+        except phonenumbers.NumberParseException:
+            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+            return
+    await state.clear()
+    await message.answer(
+    f"Вы успешно зарегестрированы\n<i>Ваш номер телефона:</i> <b>{phone}</b>",
+    reply_markup=ReplyKeyboardRemove()
+    )
+    await message.answer('Теперь вы можете проходить курсы', reply_markup=user_kb.start_course_kb.as_markup())
+    
+    
+
 
 # Обработчик выбора конкретного курса
 @funnel_user_router.callback_query(F.data.startswith('select_course:'))

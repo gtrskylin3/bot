@@ -2,7 +2,7 @@ import phonenumbers
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from database.models import User, Service
-from database.orm_query import get_or_create_user, deactivate_user, create_booking, get_user_bookings
+from database.orm_query import get_or_create_user, deactivate_user, create_booking, get_user_bookings, update_phone, check_user_phone
 
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
@@ -151,35 +151,42 @@ async def start_signup(callback: CallbackQuery, state: FSMContext, session: Asyn
         await callback.answer()
 
 @user_router.message(F.text.isalpha(), Signup.waiting_for_name)
-async def get_name(message: Message, state: FSMContext):
+async def get_name(message: Message, state: FSMContext, session: AsyncSession):
     name = message.text.strip().title()
     if len(name) < 2:
         await message.answer("❌ Имя должно содержать минимум 2 символа. Попробуйте снова:")
         return
     
     await state.update_data(name=name)
-    await state.set_state(Signup.waiting_for_phone)
-    contact_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📞 Поделиться контактом", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    await message.answer(
-        "📞 Введите ваш номер телефона:\n\n"
-        "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
-        "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
-        "<i>Для отмены записи введите /cancel</i>",
-        reply_markup=contact_kb
-    )
+    phone = await check_user_phone(session, message.from_user.id)
+    if not phone:
+        await state.set_state(Signup.waiting_for_phone)
+        
+        await message.answer(
+            "📞 Введите ваш номер телефона:\n\n"
+            "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
+            "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
+            "<i>Для отмены записи введите /cancel</i>",
+            reply_markup=user_kb.contact_kb.as_markup()
+        )
+        return
+    await state.update_data(phone=phone)
+    await state.set_state(Signup.waiting_for_date)
+    await message.answer(f"Ваш номер для записи: {phone}\n\n"
+                         "📅 Введите предпочитаемую дату:\n\n"
+                         "<i>Формат: ДД.ММ (например: 15.01)</i>\n\n"
+                         "<i>Для отмены записи введите /cancel</i>",
+                            reply_markup=user_kb.phone_kb.as_markup())
 
 @user_router.message(Signup.waiting_for_phone)
-async def get_phone(message: Message, state: FSMContext, bot: Bot):
+async def get_phone(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.contact:
         contact: Contact = message.contact
         # Сохраняем данные контакта
         phone=contact.phone_number
         if phone.startswith('8') or phone.startswith('7'):
             phone = '+7' + phone[1:]
+        await update_phone(session, message.from_user.id, phone)
         await state.update_data(
             phone=phone,
             contact_first_name=contact.first_name,
@@ -198,6 +205,7 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot):
                 return
             
             await state.update_data(phone=phone)
+            await update_phone(session, message.from_user.id, phone)
             await state.set_state(Signup.waiting_for_date)
             #валидация телефона
         except phonenumbers.NumberParseException:
@@ -210,7 +218,18 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot):
     reply_markup=ReplyKeyboardRemove()
     )
 
-    
+@user_router.callback_query(F.data=="change_user_phone", Signup.waiting_for_date)
+async def change_user_phone(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await state.set_state(Signup.waiting_for_phone)
+        
+    await callback.message.answer(
+        "📞 Введите ваш новый номер телефона:\n\n"
+        "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
+        "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
+        "<i>Для отмены записи введите /cancel</i>",
+        reply_markup=user_kb.contact_kb
+    )
 
 @user_router.message(F.text.split('.'), Signup.waiting_for_date)
 async def get_date(message: Message, state: FSMContext):
