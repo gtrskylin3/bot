@@ -253,3 +253,19 @@ async def get_user_all_funnel_progress(session: AsyncSession, user_tg_id: int) -
     )
     return list(progress_list)
 
+
+async def check_user_phone(session: AsyncSession, user_tg_id: str):
+    user = await session.get(User, user_tg_id)
+    if not user.phone:
+        return None
+    return user.phone
+
+
+async def update_phone(session: AsyncSession, user_tg_id: int, phone_number: str):
+    current_user = await session.get(User, user_tg_id)
+    if current_user.phone is None or current_user.phone != phone_number:
+        current_user.phone = phone_number
+        await session.commit()
+        return current_user
+    else:
+        return current_user
