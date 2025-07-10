@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.fsm.context import FSMContext
@@ -84,7 +84,7 @@ async def send_admin_notification(bot, user_id: int, username: str, notification
         print(f"Ошибка отправки уведомления админу: {e}")
 
 # Функция для отправки этапа воронки
-async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel, user_id: int = None):
+async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel, user: User = None):
     """Отправляет этап воронки пользователю"""
     funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
     
@@ -134,7 +134,7 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
             progress.is_completed = True
             progress.completed_at = datetime.now()
             await session.commit()
-            await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="course_completed", session=session, course_name=funnel.name, total_steps=total_steps)
+            await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="course_completed", session=session, course_name=funnel.name, total_steps=total_steps)
             
             step_text += '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
             step_text += 'Теперь вы можете записаться на индивидуальную консультацию.'
@@ -147,7 +147,7 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
         progress.is_completed = True
         progress.completed_at = datetime.now()
         await session.commit()
-        await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="paid_step_reached", session=session, course_name=funnel.name, total_steps=total_steps)
+        await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="paid_step_reached", session=session, course_name=funnel.name, total_steps=total_steps)
         step_text += '💰 <b>Это платный этап курса</b>\n\n'
         step_text += 'Для продолжения обучения запишитесь к психологу.\n\n'
         step_text += '📞 <b>Свяжитесь с психологом:</b> @Olesja_Chernova'
@@ -208,17 +208,17 @@ async def show_course_selection(message: Message, funnels: list[Funnel]):
     
     await message.answer(text, reply_markup=kb)
 
-async def start_course_for_user(message: Message, session: AsyncSession, funnel: Funnel, state: FSMContext = None, user_id: int = None):
+async def start_course_for_user(message: Message, session: AsyncSession, funnel: Funnel, state: FSMContext = None, user: User = None):
     """Начинает курс для пользователя"""
     # Получаем или создаем прогресс пользователя
     progress = await start_user_funnel(session, message.chat.id, funnel.id)
-    await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="course_started", session=session, course_name=funnel.name, started_at=progress.started_at)
+    await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="course_started", session=session, course_name=funnel.name, started_at=progress.started_at)
     # Сохраняем ID воронки в state для правильной работы
     if state is not None:
         await state.update_data(current_funnel_id=funnel.id)
     
     # Отправляем первый этап
-    await send_funnel_step(message, session, progress, funnel, user_id)
+    await send_funnel_step(message, session, progress, funnel, user)
 
 
 @funnel_user_router.message(Register.waiting_for_phone)
@@ -272,7 +272,7 @@ async def select_course_handler(callback: CallbackQuery, session: AsyncSession, 
         funnel = await session.get(Funnel, funnel_id)
         
         if funnel and funnel.is_active:
-            await start_course_for_user(callback.message, session, funnel, state, callback.from_user.id)
+            await start_course_for_user(callback.message, session, funnel, state, callback.from_user)
         else:
             await callback.message.answer('❌ Курс не найден или неактивен.')
     except (ValueError, IndexError):
@@ -318,7 +318,7 @@ async def next_funnel_step(callback: CallbackQuery, session: AsyncSession, state
     
     if updated_progress:
         # Отправляем следующий этап (логика завершения обрабатывается в send_funnel_step)
-        await send_funnel_step(callback.message, session, updated_progress, current_funnel, callback.from_user.id)
+        await send_funnel_step(callback.message, session, updated_progress, current_funnel, callback.from_user)
     else:
         await callback.message.answer('❌ Ошибка при переходе к следующему этапу.')
 
@@ -420,13 +420,13 @@ async def restart_course_handler(callback: CallbackQuery, session: AsyncSession,
             # Сбрасываем прогресс пользователя
             await reset_user_funnel_progress(session, callback.from_user.id, current_funnel_id)
             # Начинаем курс заново
-            await start_course_for_user(callback.message, session, current_funnel, state, callback.from_user.id)
+            await start_course_for_user(callback.message, session, current_funnel, state, callback.from_user)
             return
     
     # Если не нашли текущий курс, начинаем первый доступный
     funnels = await get_active_funnels(session)
     if funnels:
-        await start_course_for_user(callback.message, session, funnels[0], state, callback.from_user.id)
+        await start_course_for_user(callback.message, session, funnels[0], state, callback.from_user)
     else:
         await callback.message.answer('❌ Курс недоступен.')
 
