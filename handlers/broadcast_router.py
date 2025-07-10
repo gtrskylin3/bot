@@ -161,7 +161,8 @@ async def confirm_send_text(callback: CallbackQuery, bot: Bot, session: AsyncSes
     )
     result_text = format_broadcast_result(success_count, failed_count, "стандартным текстом", default_text)
     await callback.message.answer(result_text, reply_markup=admin_kb.admin_kb.as_markup())
-    
+    await callback.message.delete()
+    await callback.answer('')
 
 @broadcast_router.callback_query(F.data=='send_video')
 async def get_video(callback: CallbackQuery, state: FSMContext):

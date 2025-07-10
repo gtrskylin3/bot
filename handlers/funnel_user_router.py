@@ -21,6 +21,7 @@ from database.orm_query import (
 )
 from database.models import FunnelProgress, Funnel
 import phonenumbers
+from filters.admin_filter import admin 
 
 # Создаем роутер для пользователей в воронке
 funnel_user_router = Router()
@@ -29,8 +30,61 @@ class Register(StatesGroup):
     waiting_for_phone = State()
 
 
+# Функция для отправки уведомления админу
+async def send_admin_notification(bot, user_id: int, username: str, notification_type: str, session: AsyncSession, **kwargs):
+    """Отправляет уведомление админу о действиях пользователя в курсе"""
+    try:
+        if notification_type == "course_started":
+            admin_text = f"🎯 <b>Пользователь начал курс!</b>\n\n"
+            admin_text += f"👤 <b>Пользователь:</b> @{username or 'Без username'}\n"
+            admin_text += f"🆔 <b>Telegram ID:</b> {user_id}\n"
+            admin_text += f"📚 <b>Курс:</b> {kwargs.get('course_name', 'Неизвестный')}\n"
+            admin_text += f"📅 <b>Дата начала:</b> {kwargs.get("started_at", datetime.now()).strftime('%d.%m.%Y %H:%M')}\n"
+            
+        elif notification_type == "course_completed":
+            admin_text = f"🎉 <b>Пользователь завершил курс!</b>\n\n"
+            admin_text += f"👤 <b>Пользователь:</b> @{username or 'Без username'}\n"
+            admin_text += f"🆔 <b>Telegram ID:</b> {user_id}\n"
+            admin_text += f"📞 <b>Телефон:</b> {await check_user_phone(session, user_id)}\n"
+            admin_text += f"📚 <b>Курс:</b> {kwargs.get('course_name', 'Неизвестный')}\n"
+            admin_text += f"📊 <b>Пройдено этапов:</b> {kwargs.get('total_steps', 0)}\n"
+            admin_text += f"🎯 <b>Дата завершения:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            
+        elif notification_type == "paid_step_reached":
+            admin_text = f"💰 <b>Пользователь дошел до платного этапа!</b>\n\n"
+            admin_text += f"👤 <b>Пользователь:</b> @{username or 'Без username'}\n"
+            admin_text += f"🆔 <b>Telegram ID:</b> {user_id}\n"
+            admin_text += f"📞 <b>Телефон:</b> {await check_user_phone(session, user_id)}\n"
+            admin_text += f"📚 <b>Курс:</b> {kwargs.get('course_name', 'Неизвестный')}\n"
+            admin_text += f"📊 <b>Пройдено этапов:</b> {kwargs.get('total_steps', 0)}\n"
+            admin_text += f"🎯 <b>Дата завершения:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+
+        elif notification_type == "consultation_requested":
+            admin_text = f"📞 <b>Запрос на консультацию!</b>\n\n"
+            admin_text += f"👤 <b>Пользователь:</b> @{username or 'Без username'}\n"
+            admin_text += f"🆔 <b>Telegram ID:</b> {user_id}\n"
+            admin_text += f"📞 <b>Телефон:</b> {await check_user_phone(session, user_id)}\n"
+            admin_text += f"📚 <b>Курс:</b> {kwargs.get('course_name', 'Неизвестный')}\n"
+            admin_text += f"📊 <b>Этап:</b> {kwargs.get('current_step', 0)} из {kwargs.get('total_steps', 0)}\n"
+            admin_text += f"📅 <b>Дата запроса:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            
+        elif notification_type == "registration_completed":
+            admin_text = f"📝 <b>Новая регистрация!</b>\n\n"
+            admin_text += f"👤 <b>Пользователь:</b> @{username or 'Без username'}\n"
+            admin_text += f"🆔 <b>Telegram ID:</b> {user_id}\n"
+            admin_text += f"📞 <b>Телефон:</b> {await check_user_phone(session, user_id)}\n"
+            admin_text += f"📅 <b>Дата регистрации:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            
+        else:
+            return  # Неизвестный тип уведомления
+            
+        await bot.send_message(chat_id=admin, text=admin_text)
+        
+    except Exception as e:
+        print(f"Ошибка отправки уведомления админу: {e}")
+
 # Функция для отправки этапа воронки
-async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel):
+async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel, user_id: int = None):
     """Отправляет этап воронки пользователю"""
     funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
     
@@ -80,6 +134,7 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
             progress.is_completed = True
             progress.completed_at = datetime.now()
             await session.commit()
+            await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="course_completed", session=session, course_name=funnel.name, total_steps=total_steps)
             
             step_text += '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
             step_text += 'Теперь вы можете записаться на индивидуальную консультацию.'
@@ -92,7 +147,7 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
         progress.is_completed = True
         progress.completed_at = datetime.now()
         await session.commit()
-        
+        await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="paid_step_reached", session=session, course_name=funnel.name, total_steps=total_steps)
         step_text += '💰 <b>Это платный этап курса</b>\n\n'
         step_text += 'Для продолжения обучения запишитесь к психологу.\n\n'
         step_text += '📞 <b>Свяжитесь с психологом:</b> @Olesja_Chernova'
@@ -138,7 +193,7 @@ async def show_available_courses(callback: CallbackQuery, session: AsyncSession,
     # Если курс один, сразу начинаем его
     if len(funnels) == 1:
         funnel = funnels[0]
-        await start_course_for_user(callback.message, session, funnel, state)
+        await start_course_for_user(callback.message, session, funnel, state, callback.from_user.id)
     else:
         # Если курсов несколько, показываем выбор
         await show_course_selection(callback.message, funnels)
@@ -153,17 +208,17 @@ async def show_course_selection(message: Message, funnels: list[Funnel]):
     
     await message.answer(text, reply_markup=kb)
 
-async def start_course_for_user(message: Message, session: AsyncSession, funnel: Funnel, state: FSMContext = None):
+async def start_course_for_user(message: Message, session: AsyncSession, funnel: Funnel, state: FSMContext = None, user_id: int = None):
     """Начинает курс для пользователя"""
     # Получаем или создаем прогресс пользователя
     progress = await start_user_funnel(session, message.chat.id, funnel.id)
-    
+    await send_admin_notification(bot=message.bot, user_id=user_id, username=message.from_user.username, notification_type="course_started", session=session, course_name=funnel.name, started_at=progress.started_at)
     # Сохраняем ID воронки в state для правильной работы
     if state is not None:
         await state.update_data(current_funnel_id=funnel.id)
     
     # Отправляем первый этап
-    await send_funnel_step(message, session, progress, funnel)
+    await send_funnel_step(message, session, progress, funnel, user_id)
 
 
 @funnel_user_router.message(Register.waiting_for_phone)
@@ -217,7 +272,7 @@ async def select_course_handler(callback: CallbackQuery, session: AsyncSession, 
         funnel = await session.get(Funnel, funnel_id)
         
         if funnel and funnel.is_active:
-            await start_course_for_user(callback.message, session, funnel, state)
+            await start_course_for_user(callback.message, session, funnel, state, callback.from_user.id)
         else:
             await callback.message.answer('❌ Курс не найден или неактивен.')
     except (ValueError, IndexError):
@@ -263,7 +318,7 @@ async def next_funnel_step(callback: CallbackQuery, session: AsyncSession, state
     
     if updated_progress:
         # Отправляем следующий этап (логика завершения обрабатывается в send_funnel_step)
-        await send_funnel_step(callback.message, session, updated_progress, current_funnel)
+        await send_funnel_step(callback.message, session, updated_progress, current_funnel, callback.from_user.id)
     else:
         await callback.message.answer('❌ Ошибка при переходе к следующему этапу.')
 
@@ -365,13 +420,13 @@ async def restart_course_handler(callback: CallbackQuery, session: AsyncSession,
             # Сбрасываем прогресс пользователя
             await reset_user_funnel_progress(session, callback.from_user.id, current_funnel_id)
             # Начинаем курс заново
-            await start_course_for_user(callback.message, session, current_funnel, state)
+            await start_course_for_user(callback.message, session, current_funnel, state, callback.from_user.id)
             return
     
     # Если не нашли текущий курс, начинаем первый доступный
     funnels = await get_active_funnels(session)
     if funnels:
-        await start_course_for_user(callback.message, session, funnels[0], state)
+        await start_course_for_user(callback.message, session, funnels[0], state, callback.from_user.id)
     else:
         await callback.message.answer('❌ Курс недоступен.')
 

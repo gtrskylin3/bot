@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 import keyboards.funnel_kb as funnel_kb
 import filters.admin_filter as Admin
@@ -323,24 +324,33 @@ async def show_funnel_stats_for_funnel(message: Message, session: AsyncSession, 
     )
     
     # Завершивших курс
-    completed_users = await session.scalar(
-        select(func.count(FunnelProgress.id))
+    completed_users = await session.scalars(
+        select(FunnelProgress)
+        .options(selectinload(FunnelProgress.user))
         .where(FunnelProgress.funnel_id == funnel.id)
         .where(FunnelProgress.is_completed == True)
     )
-    
+    completed_users = completed_users.all()
     # Активных участников (не завершивших)
-    active_users = total_users - completed_users if total_users else 0
+    active_users = total_users - len(completed_users) if total_users else 0
     
     # Конверсия
-    conversion = (completed_users / total_users * 100) if total_users > 0 else 0
+    conversion = (len(completed_users) / total_users * 100) if total_users > 0 else 0
     
     stats_text = f'📊 <b>Статистика воронки "{funnel.name}"</b>\n\n'
     stats_text += f'👥 <b>Всего участников:</b> {total_users}\n'
-    stats_text += f'✅ <b>Завершили курс:</b> {completed_users}\n'
+    stats_text += f'✅ <b>Завершили курс:</b> {len(completed_users)}\n'
     stats_text += f'🔄 <b>В процессе:</b> {active_users}\n'
     stats_text += f'📈 <b>Конверсия:</b> {conversion:.1f}%\n'
     
+    if completed_users:
+        stats_text += "👤 Список завершивших:\n"
+        for idx, progress in enumerate(completed_users, start=1):
+            user = progress.user
+            phone = user.phone if user.phone else "📵 Нет номера"
+            stats_text += f"{idx}. {user.name} — {phone}\n"
+
+
     await message.answer(stats_text, reply_markup=funnel_kb.admin_funnel_kb.as_markup())
 
 # Настройки воронки

@@ -48,7 +48,8 @@ async def help_cmd(message: Message):
 async def service_list(callback: CallbackQuery, session: AsyncSession):    
     # Получаем активные услуги из базы данных
     services = await session.scalars(select(Service).where(Service.is_active == True))
-    services_list = list(services)
+    services_list = services.all()
+    
     # await callback.message.delete()
 
     if services_list:
@@ -65,7 +66,9 @@ async def service_list(callback: CallbackQuery, session: AsyncSession):
                 text += f'⏱<b>Длительность:</b> {service.duration} мин.\n\n'
             await callback.message.answer(text, reply_markup=signup_kb)
     else:
-        text = 'В данный момент услуги не доступны. Обратитесь к администратору.'
+        await callback.message.answer('В данный момент услуги не доступны😞\n<b>Попробуйте позже</b>')
+        await callback.answer('')
+        return
     
     await callback.message.answer('Выберите услугу или вернитесь в меню', reply_markup=user_kb.back_mrk)
     await callback.answer('Мои услуги')
