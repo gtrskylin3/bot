@@ -36,6 +36,7 @@ contact_kb = ReplyKeyboardMarkup(
 
 start_course_kb = InlineKeyboardBuilder()
 start_course_kb.button(text='🎁 Начать курс', callback_data='start_funnel')
+start_course_kb.button(text='👤 Ваш профиль', callback_data='user_profile')
 start_course_kb.button(text='🔙 Вернуться в меню', callback_data='back')
 start_course_kb.adjust(1)
 
@@ -49,3 +50,8 @@ user_profile_kb.button(text='📞 Изменить номер', callback_data='c
 user_profile_kb.button(text='📚 Мои курсы', callback_data='my_courses')
 user_profile_kb.button(text='🔙 Вернуться в меню', callback_data='back')
 user_profile_kb.adjust(1)
+
+cancel_reg_kb = InlineKeyboardBuilder()
+cancel_reg_kb.button(text="⭐ Зарегестрироваться",callback_data="user_profile")
+cancel_reg_kb.button(text="🔙 Вернуться в меню",callback_data="back")
+cancel_reg_kb.adjust(1)

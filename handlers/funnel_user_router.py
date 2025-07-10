@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.fsm.context import FSMContext
@@ -219,6 +220,19 @@ async def start_course_for_user(message: Message, session: AsyncSession, funnel:
     
     # Отправляем первый этап
     await send_funnel_step(message, session, progress, funnel, user)
+
+@funnel_user_router.message(Register.waiting_for_phone, Command('cancel'))
+async def cancel_signup(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state and current_state.startswith("Register"):
+        await state.clear()
+        await message.answer(
+            "Регистрация <b>отменена</b>",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await message.answer("Без регестрации вам будут <b>не доступны</b> основные функции бота", reply_markup=user_kb.cancel_reg_kb.as_markup())
+    else:
+        await message.answer("Нет активной записи для отмены", reply_markup=ReplyKeyboardRemove())
 
 
 @funnel_user_router.message(Register.waiting_for_phone)

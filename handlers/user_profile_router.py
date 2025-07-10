@@ -1,7 +1,6 @@
-from operator import call
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, Contact
+from aiogram.filters import Command, StateFilter
+from aiogram.types import Message, CallbackQuery, Contact, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,14 +35,35 @@ async def user_profile(callback: CallbackQuery, session: AsyncSession, state: FS
                                   f"<b>Телефон:</b> {user.phone}\n"
                                   "<i>Для изменения номера телефона нажмите кнопку ниже</i>", reply_markup=user_kb.user_profile_kb.as_markup())
     await callback.answer('')
-@user_profile_router.callback_query(F.data=="change_user_phone")
+@user_profile_router.callback_query(StateFilter(None), F.data=="change_user_phone")
 async def change_user_phone(callback: CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state:
+        await state.clear()
     await callback.message.delete()
     await state.set_state(UserProfile.waiting_for_phone)
     await callback.message.answer("📞 Введите ваш новый номер телефона:\n\n"
                                   "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
                                   "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
                                   "<i>Для отмены введите /cancel</i>", reply_markup=user_kb.contact_kb)
+
+
+@user_profile_router.message(UserProfile.waiting_for_phone, Command('cancel'))
+async def cancel_signup(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state and (current_state.startswith("UserProfile") or current_state.startswith("Register")):
+        await state.clear()
+        await message.answer(
+            "Изменение номера <b>отменено</b>",
+            reply_markup=user_kb.user_profile_kb.as_markup()
+        )
+        await message.answer(
+            "Вы всегда можете его изменить в своем <b>профиле</b>",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await message.answer("Нет активной записи для отмены", reply_markup=ReplyKeyboardRemove())
+
 
 @user_profile_router.message(UserProfile.waiting_for_phone)
 async def update_phone_handler(message: Message, state: FSMContext, session: AsyncSession):
@@ -55,6 +75,9 @@ async def update_phone_handler(message: Message, state: FSMContext, session: Asy
             phone = '+7' + phone[1:]
         await update_phone(session, message.from_user.id, phone)
         await state.clear()
+        await message.answer(f"<i>Ваш новый номер телефона:</i> <b>{phone}</b>",
+        reply_markup=ReplyKeyboardRemove()
+        )
         await message.answer("✅ Номер телефона успешно обновлен!", reply_markup=user_kb.user_profile_kb.as_markup()) 
     else:
         phone = message.text.strip()
@@ -68,8 +91,12 @@ async def update_phone_handler(message: Message, state: FSMContext, session: Asy
                 return
             await update_phone(session, message.from_user.id, phone)
             await state.clear()
-            await message.answer("✅ Номер телефона успешно обновлен!", reply_markup=user_kb.user_profile_kb.as_markup())
+            await message.answer(f"<i>Ваш новый номер телефона:</i> <b>{phone}</b>",
+            reply_markup=ReplyKeyboardRemove()
+            )
+            await message.answer("✅ Номер телефона успешно обновлен!", reply_markup=user_kb.user_profile_kb.as_markup()) 
             #валидация телефона
         except phonenumbers.NumberParseException:
             await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
             return
+

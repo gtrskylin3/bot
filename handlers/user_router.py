@@ -118,6 +118,7 @@ async def gift_cmd(callback: CallbackQuery, bot: Bot):
 @user_router.message(Command('cancel'))
 async def cancel_signup(message: Message, state: FSMContext):
     current_state = await state.get_state()
+    print(current_state)
     if current_state and current_state.startswith('Signup:'):
         await state.clear()
         await message.answer(
@@ -126,7 +127,7 @@ async def cancel_signup(message: Message, state: FSMContext):
             reply_markup=user_kb.back_mrk
         )
     else:
-        await message.answer("Нет активной записи для отмены")
+        await message.answer("Нет активной записи для отмены", reply_markup=ReplyKeyboardRemove())
 
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -170,7 +171,7 @@ async def get_name(message: Message, state: FSMContext, session: AsyncSession):
             "<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\n"
             "<i>Или нажмите кнопку ниже, чтобы поделиться контактом</i>\n\n"
             "<i>Для отмены записи введите /cancel</i>",
-            reply_markup=user_kb.contact_kb.as_markup()
+            reply_markup=user_kb.contact_kb
         )
         return
     await state.update_data(phone=phone)
