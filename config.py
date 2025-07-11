@@ -13,7 +13,9 @@ if not BOT_TOKEN:
 BASE_DIR = Path(__file__).resolve().parent  # Путь к директории, где находится скрипт (например, /path/to/your/project/bot)
 DB_PATH = BASE_DIR / "database.db"  # Путь к файлу: /path/to/your/project/bot/database.db
 DB_URL = f"sqlite+aiosqlite:///{DB_PATH}"
-DB_URL = os.getenv('DB_URL')
+# DB_URL = os.getenv('DB_URL')
+# if not DB_URL:
+#     raise ValueError("DB_URL environment variable is not set")
 
 # ID администратора (замените на реальный ID)
 ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
