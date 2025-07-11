@@ -194,7 +194,7 @@ async def show_available_courses(callback: CallbackQuery, session: AsyncSession,
     # Если курс один, сразу начинаем его
     if len(funnels) == 1:
         funnel = funnels[0]
-        await start_course_for_user(callback.message, session, funnel, state, callback.from_user.id)
+        await start_course_for_user(callback.message, session, funnel, state, callback.from_user)
     else:
         # Если курсов несколько, показываем выбор
         await show_course_selection(callback.message, funnels)
