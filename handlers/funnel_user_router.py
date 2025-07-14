@@ -1,7 +1,9 @@
+import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User, user
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import exc
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State 
@@ -82,95 +84,100 @@ async def send_admin_notification(bot, user_id: int, username: str, notification
         await bot.send_message(chat_id=admin, text=admin_text)
         
     except Exception as e:
-        print(f"Ошибка отправки уведомления админу: {e}")
+        logging.exception("Ошибка отправки уведомления админу")
 
 # Функция для отправки этапа воронки
 async def send_funnel_step(message: Message, session: AsyncSession, progress: FunnelProgress, funnel: Funnel, user: User = None):
     """Отправляет этап воронки пользователю"""
-    funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
-    
-    # Проверяем, есть ли этапы в воронке
-    if not funnel_with_steps or not funnel_with_steps.steps:
-        await message.answer(
-            '❌ Курс еще не готов. Попробуйте позже.',
-            reply_markup=user_kb.back_mrk
-        )
-        return
-    
-    total_steps = len(funnel_with_steps.steps)
-
-    # НОВАЯ ПРОВЕРКА: Если курс помечен как завершенный, но этапов стало больше
-    if progress.is_completed and progress.current_step < total_steps:
-        # Проверяем, есть ли бесплатные этапы после текущего
-        has_free_steps_ahead = False
-        for i in range(progress.current_step - 1, total_steps):  # -1 потому что индексация с 0
-            step = funnel_with_steps.steps[i]
-            if step.is_free:
-                has_free_steps_ahead = True
-                break
+    try:
+        funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
         
-        # Если есть бесплатные этапы впереди, снимаем флаг завершения
-        if has_free_steps_ahead:
-            progress.is_completed = False
-            progress.completed_at = None
-            await session.commit()
+        # Проверяем, есть ли этапы в воронке
+        if not funnel_with_steps or not funnel_with_steps.steps:
+            await message.answer(
+                '❌ Курс еще не готов. Попробуйте позже.',
+                reply_markup=user_kb.back_mrk
+            )
+            return
+        
+        total_steps = len(funnel_with_steps.steps)
 
-    # Проверяем, что текущий этап существует
-    if progress.current_step > len(funnel_with_steps.steps) or progress.current_step < 1:
-        await message.answer('❌ Этап не найден')
-        return
-    
-    current_step = funnel_with_steps.steps[progress.current_step - 1]
-    
-    
-    # Формируем текст сообщения
-    step_text = f'📚 <b>{current_step.title}</b>\n\n'
-    step_text += f'{current_step.content}\n\n'
-    
-    # Определяем клавиатуру в зависимости от типа этапа
-    if current_step.is_free:
-        # Бесплатный этап
-        if progress.current_step == total_steps:
-            # Это последний этап - курс завершен
+        # НОВАЯ ПРОВЕРКА: Если курс помечен как завершенный, но этапов стало больше
+        try:
+            if progress.is_completed and progress.current_step < total_steps:
+                # Проверяем, есть ли бесплатные этапы после текущего
+                has_free_steps_ahead = False
+                for i in range(progress.current_step - 1, total_steps):  # -1 потому что индексация с 0
+                    step = funnel_with_steps.steps[i]
+                    if step.is_free:
+                        has_free_steps_ahead = True
+                        break
+                
+                # Если есть бесплатные этапы впереди, снимаем флаг завершения
+                if has_free_steps_ahead:
+                    progress.is_completed = False
+                    progress.completed_at = None
+                    await session.commit()
+        except Exception as e:
+            logging.exception("Ошибка обновления прогресса")
+        # Проверяем, что текущий этап существует
+        if progress.current_step > len(funnel_with_steps.steps) or progress.current_step < 1:
+            await message.answer('❌ Этап не найден')
+            return
+        
+        current_step = funnel_with_steps.steps[progress.current_step - 1]
+        
+        
+        # Формируем текст сообщения
+        step_text = f'📚 <b>{current_step.title}</b>\n\n'
+        step_text += f'{current_step.content}\n\n'
+        
+        # Определяем клавиатуру в зависимости от типа этапа
+        if current_step.is_free:
+            # Бесплатный этап
+            if progress.current_step == total_steps:
+                # Это последний этап - курс завершен
+                progress.is_completed = True
+                progress.completed_at = datetime.now()
+                await session.commit()
+                await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="course_completed", session=session, course_name=funnel.name, total_steps=total_steps)
+                logging.info("Пользователь: %d завершил курс (funnel id: %d)", user.id, funnel.id)
+                step_text += '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
+                step_text += 'Теперь вы можете записаться на индивидуальную консультацию.'
+                reply_markup = funnel_kb.funnel_complete_kb
+            else:
+                # Показываем кнопку "Следующий урок"
+                reply_markup = funnel_kb.funnel_next_kb
+        else:
+            # Платный этап - курс завершен на платной части
             progress.is_completed = True
             progress.completed_at = datetime.now()
             await session.commit()
-            await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="course_completed", session=session, course_name=funnel.name, total_steps=total_steps)
-            
-            step_text += '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
-            step_text += 'Теперь вы можете записаться на индивидуальную консультацию.'
-            reply_markup = funnel_kb.funnel_complete_kb
+            await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="paid_step_reached", session=session, course_name=funnel.name, total_steps=total_steps)
+            logging.info("Пользователь: %d дошел до платного этапа курса (funnel id: %d)", user.id, funnel.id)
+            step_text += '💰 <b>Это платный этап курса</b>\n\n'
+            step_text += 'Для продолжения обучения запишитесь к психологу.\n\n'
+            step_text += '📞 <b>Свяжитесь с психологом:</b> @Olesja_Chernova'
+            reply_markup = funnel_kb.funnel_paid_stop_kb
+        
+        # Отправляем контент в зависимости от типа
+        if current_step.content_type == 'video' and current_step.file_id:
+            # Отправляем видео с подписью
+            await message.answer_video(
+                video=current_step.file_id,
+                caption=step_text,
+                reply_markup=reply_markup
+            )
         else:
-            # Показываем кнопку "Следующий урок"
-            reply_markup = funnel_kb.funnel_next_kb
-    else:
-        # Платный этап - курс завершен на платной части
-        progress.is_completed = True
-        progress.completed_at = datetime.now()
-        await session.commit()
-        await send_admin_notification(bot=message.bot, user_id=user.id, username=user.username, notification_type="paid_step_reached", session=session, course_name=funnel.name, total_steps=total_steps)
-        step_text += '💰 <b>Это платный этап курса</b>\n\n'
-        step_text += 'Для продолжения обучения запишитесь к психологу.\n\n'
-        step_text += '📞 <b>Свяжитесь с психологом:</b> @Olesja_Chernova'
-        reply_markup = funnel_kb.funnel_paid_stop_kb
-    
-    # Отправляем контент в зависимости от типа
-    if current_step.content_type == 'video' and current_step.file_id:
-        # Отправляем видео с подписью
-        await message.answer_video(
-            video=current_step.file_id,
-            caption=step_text,
-            reply_markup=reply_markup
-        )
-    else:
-        # Отправляем только текст
-        await message.answer(step_text, reply_markup=reply_markup)
+            # Отправляем только текст
+            await message.answer(step_text, reply_markup=reply_markup)
+    except Exception as e:
+        logging.exception("Ошибка при отправки этапа курса")
 
 # Показ списка доступных курсов
 @funnel_user_router.callback_query(F.data=='start_funnel')
 async def show_available_courses(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
     phone = await check_user_phone(session, callback.from_user.id)
-    print(phone)
     if phone is None:
         await callback.answer('')
         await state.set_state(Register.waiting_for_phone)
@@ -270,6 +277,7 @@ async def get_phone(message: Message, state: FSMContext, session: AsyncSession):
     f"Вы успешно зарегестрированы\n<i>Ваш номер телефона:</i> <b>{phone}</b>",
     reply_markup=ReplyKeyboardRemove()
     )
+    logging.info(f"Пользователь {message.from_user.id} успешно зарегестрирован.")
     await message.answer('Теперь вы можете проходить курсы', reply_markup=user_kb.start_course_kb.as_markup())
     
     
@@ -291,50 +299,55 @@ async def select_course_handler(callback: CallbackQuery, session: AsyncSession, 
             await callback.message.answer('❌ Курс не найден или неактивен.')
     except (ValueError, IndexError):
         await callback.message.answer('❌ Ошибка при выборе курса.')
+        logging.exception("❌ Ошибка при выборе курса.")
 
 # Переход к следующему этапу воронки
 @funnel_user_router.callback_query(F.data=='funnel_next')
 async def next_funnel_step(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    await callback.answer('')
-    
-    # Получаем ID текущей воронки из state
-    data = await state.get_data()
-    current_funnel_id = data.get('current_funnel_id')
-    
-    if not current_funnel_id:
-        await callback.message.answer('❌ Курс не найден. Начните курс заново.')
-        return
-    
-    # Получаем текущую воронку
-    current_funnel = await session.get(Funnel, current_funnel_id)
-    if not current_funnel:
-        await callback.message.answer('❌ Курс не найден. Начните курс заново.')
-        return
-    
-    # Получаем прогресс пользователя по конкретной воронке
-    user_progress = await get_user_funnel_progress(session, callback.from_user.id, current_funnel_id)
-    
-    if not user_progress:
-        await callback.message.answer('❌ Прогресс не найден. Начните курс заново.')
-        return
-    
-    # Проверяем, завершен ли курс
-    # if user_progress.is_completed:
-    #     await callback.message.answer(
-    #         '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
-    #         'Теперь вы можете записаться на индивидуальную консультацию.',
-    #         reply_markup=funnel_kb.funnel_complete_kb
-    #     )
-    #     return
-    
-    # Переходим к следующему этапу
-    updated_progress = await advance_user_funnel(session, callback.from_user.id, current_funnel_id)
-    
-    if updated_progress:
-        # Отправляем следующий этап (логика завершения обрабатывается в send_funnel_step)
-        await send_funnel_step(callback.message, session, updated_progress, current_funnel, callback.from_user)
-    else:
-        await callback.message.answer('❌ Ошибка при переходе к следующему этапу.')
+    try:
+        await callback.answer('')
+        
+        # Получаем ID текущей воронки из state
+        data = await state.get_data()
+        current_funnel_id = data.get('current_funnel_id')
+        
+        if not current_funnel_id:
+            await callback.message.answer('❌ Курс не найден. Начните курс заново.')
+            return
+        
+        # Получаем текущую воронку
+        current_funnel = await session.get(Funnel, current_funnel_id)
+        if not current_funnel:
+            await callback.message.answer('❌ Курс не найден. Начните курс заново.')
+            return
+        
+        # Получаем прогресс пользователя по конкретной воронке
+        user_progress = await get_user_funnel_progress(session, callback.from_user.id, current_funnel_id)
+        
+        if not user_progress:
+            await callback.message.answer('❌ Прогресс не найден. Начните курс заново.')
+            return
+        
+        # Проверяем, завершен ли курс
+        # if user_progress.is_completed:
+        #     await callback.message.answer(
+        #         '🎉 <b>Поздравляем! Вы завершили курс!</b>\n\n'
+        #         'Теперь вы можете записаться на индивидуальную консультацию.',
+        #         reply_markup=funnel_kb.funnel_complete_kb
+        #     )
+        #     return
+        
+        # Переходим к следующему этапу
+        updated_progress = await advance_user_funnel(session, callback.from_user.id, current_funnel_id)
+        
+        if updated_progress:
+            # Отправляем следующий этап (логика завершения обрабатывается в send_funnel_step)
+            await send_funnel_step(callback.message, session, updated_progress, current_funnel, callback.from_user)
+            await callback.message.delete()
+        else:
+            await callback.message.answer('❌ Ошибка при переходе к следующему этапу.')
+    except Exception:
+        logging.exception("Ошибка при переходе к следующему этапу")
 
 # Показ прогресса пользователя
 @funnel_user_router.callback_query(F.data=='funnel_progress')
@@ -347,11 +360,13 @@ async def show_funnel_progress(callback: CallbackQuery, session: AsyncSession, s
     
     if not current_funnel_id:
         await callback.message.answer('❌ Курс не найден. Начните курс заново.')
+        logging.warning("Курс не найден. нету данных из state: current_funnel_id is None")
         return
     
     # Получаем текущую воронку
     current_funnel = await session.get(Funnel, current_funnel_id)
     if not current_funnel:
+        logging.error(f"Нету воронки с id переданным из state: {current_funnel_id}")
         await callback.message.answer('❌ Курс не найден. Начните курс заново.')
         return
     
@@ -359,35 +374,39 @@ async def show_funnel_progress(callback: CallbackQuery, session: AsyncSession, s
     user_progress = await get_user_funnel_progress(session, callback.from_user.id, current_funnel_id)
     
     if not user_progress:
+        logging.warning(f'❌ Прогресс user: {callback.from_user.id} не найден, current_funnel_id={current_funnel_id}')
         await callback.message.answer('❌ Прогресс не найден. Начните курс заново.')
         return
     
     # Показываем прогресс
-    funnel_with_steps = await get_funnel_with_steps(session, current_funnel_id)
-    total_steps = len(funnel_with_steps.steps) if funnel_with_steps else 0
-    
-    progress_text = f'📊 <b>Ваш прогресс в курсе "{current_funnel.name}"</b>\n\n'
-    progress_text += f'📈 <b>Этап:</b> {user_progress.current_step} из {total_steps}\n'
-    progress_text += f'📅 <b>Начато:</b> {user_progress.started_at.strftime("%d.%m.%Y")}\n'
-    
-    if user_progress.is_completed and user_progress.current_step == total_steps:
-        progress_text += f'✅ <b>Статус:</b> Завершено\n'
-        progress_text += f'🎯 <b>Завершено:</b> {user_progress.completed_at.strftime("%d.%m.%Y")}\n'
-    else:
-        progress_text += f'🔄 <b>Статус:</b> В процессе\n'
-        # Сбрасываем флаг только если он был установлен неправильно
-        if user_progress.is_completed:
-            user_progress.is_completed = False
-            user_progress.completed_at = None
-            await session.commit()
+    try:
+        funnel_with_steps = await get_funnel_with_steps(session, current_funnel_id)
+        total_steps = len(funnel_with_steps.steps) if funnel_with_steps else 0
         
-        # Показываем информацию о следующем этапе
-        if user_progress.current_step <= total_steps and funnel_with_steps:
-            current_step = funnel_with_steps.steps[user_progress.current_step - 1]
-            progress_text += f'📚 <b>Следующий урок:</b> {current_step.title}\n'
-            progress_text += f'💰 <b>Тип:</b> {"Бесплатный" if current_step.is_free else "Платный"}\n'
-    
-    await callback.message.answer(progress_text, reply_markup=user_kb.back_mrk)
+        progress_text = f'📊 <b>Ваш прогресс в курсе "{current_funnel.name}"</b>\n\n'
+        progress_text += f'📈 <b>Этап:</b> {user_progress.current_step} из {total_steps}\n'
+        progress_text += f'📅 <b>Начато:</b> {user_progress.started_at.strftime("%d.%m.%Y")}\n'
+        
+        if user_progress.is_completed and user_progress.current_step == total_steps:
+            progress_text += f'✅ <b>Статус:</b> Завершено\n'
+            progress_text += f'🎯 <b>Завершено:</b> {user_progress.completed_at.strftime("%d.%m.%Y")}\n'
+        else:
+            progress_text += f'🔄 <b>Статус:</b> В процессе\n'
+            # Сбрасываем флаг только если он был установлен неправильно
+            if user_progress.is_completed:
+                user_progress.is_completed = False
+                user_progress.completed_at = None
+                await session.commit()
+            
+            # Показываем информацию о следующем этапе
+            if user_progress.current_step <= total_steps and funnel_with_steps:
+                current_step = funnel_with_steps.steps[user_progress.current_step - 1]
+                progress_text += f'📚 <b>Следующий урок:</b> {current_step.title}\n'
+                progress_text += f'💰 <b>Тип:</b> {"Бесплатный" if current_step.is_free else "Платный"}\n'
+        
+        await callback.message.answer(progress_text, reply_markup=user_kb.back_mrk)
+    except Exception:
+        logging.exception(F"Ошибка при получении воронки с этапами курса. User: {callback.from_user.id}, Funnel id: {current_funnel_id}")
 
 # Обработчики для платных этапов (когда пользователь останавливается)
 @funnel_user_router.callback_query(F.data=='consultation_request')
@@ -462,28 +481,31 @@ async def show_my_courses(callback: CallbackQuery, session: AsyncSession, state:
     
     text = '📚 <b>Ваши курсы</b>\n\n'
     
-    for progress in user_progresses:
-        funnel = await session.get(Funnel, progress.funnel_id)
-        if funnel and funnel.is_active:
-            funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
-            total_steps = len(funnel_with_steps.steps) if funnel_with_steps else 0
-            
-            text += f'📋 <b>{funnel.name}</b>\n'
-            text += f'📈 Прогресс: {progress.current_step} из {total_steps}\n'
-            
-            if progress.is_completed and progress.current_step == total_steps:
-                text += f'✅ Статус: Завершен\n'
-                text += f'🎯 Завершен: {progress.completed_at.strftime("%d.%m.%Y")}\n'
-            else:
-                text += f'🔄 Статус: В процессе\n'
-                text += f'📅 Начат: {progress.started_at.strftime("%d.%m.%Y")}\n'
-                # Сбрасываем флаг только если он был установлен неправильно
-                if progress.is_completed:
-                    progress.is_completed = False
-                    progress.completed_at = None
-                    await session.commit()
-            
-            text += '\n'
+    try:
+        for progress in user_progresses:
+            funnel = await session.get(Funnel, progress.funnel_id)
+            if funnel and funnel.is_active:
+                funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
+                total_steps = len(funnel_with_steps.steps) if funnel_with_steps else 0
+                
+                text += f'📋 <b>{funnel.name}</b>\n'
+                text += f'📈 Прогресс: {progress.current_step} из {total_steps}\n'
+                
+                if progress.is_completed and progress.current_step == total_steps:
+                    text += f'✅ Статус: Завершен\n'
+                    text += f'🎯 Завершен: {progress.completed_at.strftime("%d.%m.%Y")}\n'
+                else:
+                    text += f'🔄 Статус: В процессе\n'
+                    text += f'📅 Начат: {progress.started_at.strftime("%d.%m.%Y")}\n'
+                    # Сбрасываем флаг только если он был установлен неправильно
+                    if progress.is_completed:
+                        progress.is_completed = False
+                        progress.completed_at = None
+                        await session.commit()
+                
+                text += '\n'
+    except Exception:
+        logging.exception(f"Ошибка при показе статистики курсов пользователя: {callback.from_user.id}")
     
     # Добавляем кнопки для управления
     kb = InlineKeyboardBuilder()

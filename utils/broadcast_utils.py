@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Callable
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +47,7 @@ async def send_broadcast(
             except Exception as e:
                 failed_count += 1
                 await deactivate_user(session, user.tg_id)
-                print(f"Ошибка отправки пользователю {user.tg_id}: {e}")
+                logging.exception(f"Ошибка отправки пользователю:  {user.tg_id}")
         if i + batch_size < len(users):
             await asyncio.sleep(delay)
     return success_count, failed_count

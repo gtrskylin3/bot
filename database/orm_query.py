@@ -1,4 +1,5 @@
-from sqlalchemy import select, insert, update, delete
+import logging
+from sqlalchemy import exc, select, insert, update, delete
 from database.models import User, BroadcastSettings, Booking, Funnel, FunnelStep, FunnelProgress
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,21 +9,26 @@ from datetime import datetime, timedelta
 
 async def get_or_create_user(session: AsyncSession, user_tg_id: int, user_name: str) -> User:
     """Получает пользователя из БД или создает нового. Возвращает объект пользователя."""
-    current_user = await session.get(User, user_tg_id)
-    if current_user is None:
-        # Создаем нового пользователя
-        current_user = User(tg_id=user_tg_id, name=user_name)
-        session.add(current_user)
-        await session.commit()
-        return current_user
-    else:
-        # Обновляем имя если изменилось и активируем пользователя
-        if current_user.name != user_name:
-            current_user.name = user_name
-        if not current_user.is_active:
-            current_user.is_active = True
-        await session.commit()
-        return current_user
+    try: 
+        current_user = await session.get(User, user_tg_id)
+        if current_user is None:
+            # Создаем нового пользователя
+            current_user = User(tg_id=user_tg_id, name=user_name)
+            session.add(current_user)
+            await session.commit()
+            return current_user
+        else:
+            # Обновляем имя если изменилось и активируем пользователя
+            if current_user.name != user_name:
+                current_user.name = user_name
+            if not current_user.is_active:
+                current_user.is_active = True
+            await session.commit()
+            return current_user
+    except Exception as e:
+        logging.error(f"Ошибка при работе с пользователем {user_tg_id}: {str(e)}")
+        raise
+        
 
 async def deactivate_user(session: AsyncSession, user_tg_id: int):
     """Деактивирует пользователя (при блокировке бота)"""
@@ -64,17 +70,23 @@ async def create_booking(
     preferred_time: str,
 ) -> Booking:
     """Создает новую запись"""
-    booking = Booking(
-        user_tg_id=user_tg_id,
-        service_id=service_id,
-        client_name=client_name,
-        phone=phone,
-        preferred_date=preferred_date,
-        preferred_time=preferred_time
-    )
-    session.add(booking)
-    await session.commit()
-    return booking
+    try:
+        booking = Booking(
+            user_tg_id=user_tg_id,
+            service_id=service_id,
+            client_name=client_name,
+            phone=phone,
+            preferred_date=preferred_date,
+            preferred_time=preferred_time
+        )
+        session.add(booking)
+        await session.commit()
+        logging.info(f"Создана запись {booking.id} для пользователя {user_tg_id}")
+        return booking
+    except Exception as e:
+        logging.error(f"Ошибка создания записи для {user_tg_id}: {str(e)}")
+        raise
+
 
 async def get_all_bookings(session: AsyncSession):
     """Получает все записи (for admin)"""
@@ -147,18 +159,21 @@ async def create_funnel_step(
     file_id: str = None
 ) -> FunnelStep:
     """Создает новый этап воронки"""
-    step = FunnelStep(
-        funnel_id=funnel_id,
-        order=order,
-        title=title,
-        content=content,
-        content_type=content_type,
-        is_free=is_free,
-        file_id=file_id
-    )
-    session.add(step)
-    await session.commit()
-    return step
+    try:
+        step = FunnelStep(
+            funnel_id=funnel_id,
+            order=order,
+            title=title,
+            content=content,
+            content_type=content_type,
+            is_free=is_free,
+            file_id=file_id
+        )
+        session.add(step)
+        await session.commit()
+        return step
+    except Exception:
+        logging.exception(f"Ошибка создания {order} этапа воронки {funnel_id}")
 
 async def get_user_funnel_progress(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
     """Получает прогресс пользователя по воронке"""
@@ -172,56 +187,73 @@ async def get_user_funnel_progress(session: AsyncSession, user_tg_id: int, funne
 async def start_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
     """Начинает воронку для пользователя"""
     # Проверяем, не начал ли уже пользователь эту воронку
-    existing_progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
-    if existing_progress:
-        return existing_progress
-    
-    # Создаем новый прогресс
-    progress = FunnelProgress(
-        user_tg_id=user_tg_id,
-        funnel_id=funnel_id,
-        current_step=1,
-    )
-    session.add(progress)
-    await session.commit()
-    return progress
+    try:
+        existing_progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
+        if existing_progress:
+            return existing_progress
+        
+        # Создаем новый прогресс
+        progress = FunnelProgress(
+            user_tg_id=user_tg_id,
+            funnel_id=funnel_id,
+            current_step=1,
+        )
+        session.add(progress)
+        await session.commit()
+        return progress
+    except Exception:
+        logging.exception(f"Ошибка начала воронки {funnel_id} для Пользователя: {user_tg_id}")
+
 
 async def advance_user_funnel(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
     """Переходит к следующему этапу воронки"""
-    progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
-    if not progress:
-        return None
-    
-    # Получаем воронку с этапами
-    funnel = await get_funnel_with_steps(session, funnel_id)
-    if not funnel or not funnel.steps:
+    try:
+        progress = await get_user_funnel_progress(session, user_tg_id, funnel_id)
+        if not progress:
+            logging.warning(
+                    f"Прогресс не найден: user_id={user_tg_id}, "
+                    f"funnel_id={funnel_id}"
+                )
+            return None
+        
+        # Получаем воронку с этапами
+        funnel = await get_funnel_with_steps(session, funnel_id)
+        if not funnel or not funnel.steps:
+            return progress
+        
+        total_steps = len(funnel.steps)
+        
+        # Проверяем, что текущий этап существует
+        if progress.current_step > total_steps:
+            return progress
+        
+        # Получаем текущий этап
+        current_step = funnel.steps[progress.current_step - 1]
+        
+        # Если текущий этап платный, не переходим дальше
+        if not current_step.is_free:
+            return progress
+        
+        # Переходим к следующему этапу
+        progress.current_step += 1
+        progress.last_activity = datetime.now()
+        
+        # Проверяем, достигли ли мы конца курса (только если это последний этап)
+        if progress.current_step > total_steps:
+            # Курс завершен - мы прошли все этапы
+            progress.is_completed = True
+            progress.completed_at = datetime.now()
+        
+        await session.commit()
         return progress
-    
-    total_steps = len(funnel.steps)
-    
-    # Проверяем, что текущий этап существует
-    if progress.current_step > total_steps:
-        return progress
-    
-    # Получаем текущий этап
-    current_step = funnel.steps[progress.current_step - 1]
-    
-    # Если текущий этап платный, не переходим дальше
-    if not current_step.is_free:
-        return progress
-    
-    # Переходим к следующему этапу
-    progress.current_step += 1
-    progress.last_activity = datetime.now()
-    
-    # Проверяем, достигли ли мы конца курса (только если это последний этап)
-    if progress.current_step > total_steps:
-        # Курс завершен - мы прошли все этапы
-        progress.is_completed = True
-        progress.completed_at = datetime.now()
-    
-    await session.commit()
-    return progress
+    except Exception as e:
+        logging.exception(
+            f"Ошибка перехода этапа: user_id={user_tg_id}, "
+            f"funnel_id={funnel_id}, "
+            f"error={str(e)}"
+        )
+        raise
+
 
 async def reset_user_funnel_progress(session: AsyncSession, user_tg_id: int, funnel_id: int) -> FunnelProgress:
     """Сбрасывает прогресс пользователя по воронке к началу"""
@@ -266,6 +298,7 @@ async def update_phone(session: AsyncSession, user_tg_id: int, phone_number: str
     if current_user.phone is None or current_user.phone != phone_number:
         current_user.phone = phone_number
         await session.commit()
+        logging.info("Пользователь: %d обновил номер телефона: %s", user_tg_id, phone_number)
         return current_user
     else:
         return current_user

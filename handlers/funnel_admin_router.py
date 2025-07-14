@@ -1,3 +1,4 @@
+import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import Command
@@ -95,6 +96,7 @@ async def get_funnel_description(message: Message, state: FSMContext, session: A
             reply_markup=funnel_kb.admin_funnel_kb.as_markup()
         )
         await state.clear()
+        logging.exception("Произошла ошибка при создании воронки")
 
 # Список воронок
 @funnel_admin_router.callback_query(F.data == 'list_funnels')
@@ -161,6 +163,7 @@ async def select_funnel_for_stats(callback: CallbackQuery, session: AsyncSession
             await callback.message.answer('❌ Воронка не найдена или неактивна.')
     except (ValueError, IndexError):
         await callback.message.answer('❌ Ошибка при выборе воронки.')
+        logging.exception('❌ Ошибка при выборе воронки.')
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_title)
 async def get_step_title(message: Message, state: FSMContext):
@@ -259,6 +262,7 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
             f'❌ Ошибка при создании этапа: {e}',
             reply_markup=funnel_kb.admin_funnel_kb.as_markup()
         )
+        logging.exception("❌ Ошибка при создании этапа")
 
 # Просмотр этапов воронки
 @funnel_admin_router.callback_query(F.data.startswith('view_funnel_steps:'))
@@ -269,6 +273,7 @@ async def view_funnel_steps(callback: CallbackQuery, session: AsyncSession):
     funnel = await session.get(Funnel, funnel_id)
     if not funnel:
         await callback.message.answer('❌ Воронка не найдена.')
+        logging.warning("Воронка не найдена: %s", funnel_id)
         return
     
     await show_funnel_steps_for_funnel(callback.message, session, funnel)
@@ -414,7 +419,6 @@ async def confirm_delete_funnel(callback: CallbackQuery, session: AsyncSession, 
         await callback.message.answer('❌ Воронка не найдена.')
         return
     await state.update_data(funnel_id=funnel_id)
-    print(state)
     await callback.message.answer(
         '⚠️ <b>Подтверждение удаления</b>\n\n'
         'Вы уверены, что хотите удалить воронку?\n\n'
@@ -445,6 +449,7 @@ async def delete_funnel_action(callback: CallbackQuery, session: AsyncSession, s
             f'❌ Ошибка при удалении воронки: {e}',
             reply_markup=funnel_kb.admin_funnel_kb.as_markup()
         )
+        logging.exception('❌ Ошибка при удалении воронки')
 
 # Отмена операций
 @funnel_admin_router.message(Command('cancel'))

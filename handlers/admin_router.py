@@ -1,3 +1,4 @@
+import logging
 from aiogram import Router, F, Bot
 from aiogram.types import InlineKeyboardMarkup, Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, and_f
@@ -34,7 +35,6 @@ async def admin_start(message: Message):
 @admin_router.callback_query(F.data=='back_to_admin')
 async def back_to_admin(callback: CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
-    print(current_state)
     if current_state is not None:
         await state.clear()
     await callback.message.delete()
@@ -235,7 +235,7 @@ async def view_bookings(callback: CallbackQuery, session: AsyncSession):
                 reply_markup=admin_kb.admin_kb.as_markup()
             )
     except Exception as e:
-        print(f"Ошибка при получении записей: {e}")
+        logging.exception("Ошибка при получении записей")
         await callback.message.answer(
             '❌ Произошла ошибка при получении записей', 
             reply_markup=admin_kb.admin_kb.as_markup()

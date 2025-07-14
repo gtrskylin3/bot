@@ -1,6 +1,6 @@
 import phonenumbers
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import exc, select, delete
 from database.models import User, Service
 from database.orm_query import get_or_create_user, deactivate_user, create_booking, get_user_bookings, update_phone, check_user_phone
 
@@ -17,6 +17,10 @@ from filters.admin_filter import admin
 from datetime import datetime
 from filters.month_filter import month_filter
 import os
+import logging
+
+# logger = logging.getLogger(__name__)
+
 
 class Signup(StatesGroup):
     waiting_for_name = State()
@@ -34,10 +38,12 @@ image = FSInputFile(image_path, filename='olesya.webp')
 
 @user_router.message(CommandStart())
 async def start(message: Message, session: AsyncSession):
-    from_user = message.from_user
-    user = await get_or_create_user(session, from_user.id, from_user.full_name)
-    await message.answer_photo(photo=image, caption=START_TEXT, reply_markup=user_kb.start_kb.as_markup())
-
+    try:
+        from_user = message.from_user
+        user = await get_or_create_user(session, from_user.id, from_user.full_name)
+        await message.answer_photo(photo=image, caption=START_TEXT, reply_markup=user_kb.start_kb.as_markup())
+    except Exception as e:
+        logging.exception("Ошибка при добавлении/получении пользователя:")
 
 @user_router.message(Command(commands='help'))
 async def help_cmd(message: Message):
@@ -90,6 +96,7 @@ async def handle_my_chat_member(event: ChatMemberUpdated, session: AsyncSession)
     if event.new_chat_member.status in ("kicked", "left"):  # kicked - заблокировал, left - удалил
         tg_id = event.from_user.id
         await deactivate_user(session, tg_id)
+        logging.warning("Пользователь заблокировал бота: %s", tg_id)
         # await session.execute(delete(User).where(User.tg_id == tg_id))
         # await session.commit()
 
@@ -132,8 +139,8 @@ async def cancel_signup(message: Message, state: FSMContext):
 @user_router.callback_query(F.data.startswith('signup_'))
 async def start_signup(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     book_user = await get_user_bookings(session, user_id=callback.from_user.id)
-    print(book_user)
     if book_user >= 3:
+        logging.info(f'У user: {callback.from_user.id} пытается сделать больше 3 записей')
         await callback.message.answer("Вы не можете сделать больше трёх записей\nПожалуйста подождите я c вами свяжусь")
         await callback.answer('Более 3 записей недопустимо')
         return
@@ -315,7 +322,7 @@ async def get_time(message: Message, state: FSMContext, bot: Bot, session: Async
                     first_name=data['name']
                     )
         except Exception as admin_error:
-            print(f"Ошибка отправки уведомления админу: {admin_error}")
+            logging.exception(f"Ошибка отправки уведомления админу, data: {data}")
             await message.answer(
                 "❌ Произошла ошибка при создании записи. Попробуйте позже.",
                 reply_markup=user_kb.back_mrk
@@ -337,7 +344,7 @@ async def get_time(message: Message, state: FSMContext, bot: Bot, session: Async
             "❌ Произошла ошибка при создании записи. Попробуйте позже.",
             reply_markup=user_kb.back_mrk
         )
-        print(f"Ошибка создания записи: {e}")
+        logging.exception(f"Ошибка создания записи, user: {message.from_user.id}, data: {data}")
     await state.clear()
 
 
