@@ -90,3 +90,10 @@ free_paid_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
     one_time_keyboard=True
 )
+
+confirm_content_caption = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text='✅ Оставить', callback_data='keep_content_text')],
+                [InlineKeyboardButton(text='❌ Изменить подпись', callback_data='edit_content_text')]
+            ]
+)

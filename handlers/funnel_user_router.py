@@ -1,6 +1,7 @@
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User, user
+from aiogram.enums import content_type
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, User, user, ForceReply
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import exc
@@ -130,7 +131,9 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
         
         # Формируем текст сообщения
         step_text = f'📚 <b>{current_step.title}</b>\n\n'
-        step_text += f'{current_step.content}\n\n'
+
+        if current_step.content:
+            step_text += f'{current_step.content}\n\n'
         
         # Определяем клавиатуру в зависимости от типа этапа
         if current_step.is_free:
@@ -165,6 +168,12 @@ async def send_funnel_step(message: Message, session: AsyncSession, progress: Fu
             # Отправляем видео с подписью
             await message.answer_video(
                 video=current_step.file_id,
+                caption=step_text,
+                reply_markup=reply_markup
+            )
+        elif current_step.content_type == 'audio' and current_step.file_id:
+            await message.answer_audio(
+                audio=current_step.file_id,
                 caption=step_text,
                 reply_markup=reply_markup
             )
@@ -264,13 +273,13 @@ async def get_phone(message: Message, state: FSMContext, session: AsyncSession):
         try:
             parsed_phone = phonenumbers.parse(phone, "RU")
             if not phonenumbers.is_valid_number(parsed_phone):
-                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите номер телефона в формате +7XXXXXXXXXX или 8XXXXXXXXXX"))
                 return
             
             await state.update_data(phone=phone)
             await update_phone(session, message.from_user.id, phone)
         except phonenumbers.NumberParseException:
-            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите номер телефона в формате +7XXXXXXXXXX или 8XXXXXXXXXX"))
             return
     await state.clear()
     await message.answer(

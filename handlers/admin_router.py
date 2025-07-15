@@ -1,6 +1,6 @@
 import logging
 from aiogram import Router, F, Bot
-from aiogram.types import InlineKeyboardMarkup, Message, CallbackQuery, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, Message, CallbackQuery, InlineKeyboardButton, ReplyKeyboardRemove, ForceReply
 from aiogram.filters import CommandStart, Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -46,9 +46,10 @@ async def cancel_broadcast_settings(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is not None:
         await state.clear()
-        await message.answer('Настройка отменена.', reply_markup=admin_kb.admin_kb.as_markup())
+        await message.answer("Настройка отменена", reply_markup=ReplyKeyboardRemove())
+        await message.answer('Вы админисктратор вы можете cделать:', reply_markup=admin_kb.admin_kb.as_markup())
     else:
-        await message.answer('Нет активного процесса настройки.')
+        await message.answer('Нет активного процесса настройки.', reply_markup=ReplyKeyboardRemove())
 
 
 @admin_router.callback_query(F.data=='user_list')
@@ -77,39 +78,44 @@ async def start_add_service(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
     await state.set_state(ServiceCreation.waiting_for_name)
-    await callback.message.answer('Введите название услуги:\n\nДля отмены введите /cancel')
+    await callback.message.answer('Введите название услуги:\n\nДля отмены введите /cancel', 
+    reply_markup=ForceReply(selective=True, input_field_placeholder="Например: Консультация"))
 
 @admin_router.message(ServiceCreation.waiting_for_name)
 async def get_service_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(ServiceCreation.waiting_for_description)
-    await message.answer('Введите описание услуги:\n\nДля отмены введите /cancel')
+    await message.answer('Введите описание услуги:\n\nДля отмены введите /cancel', 
+    reply_markup=ForceReply(selective=True, input_field_placeholder="Краткое описание услуги"))
 
 @admin_router.message(ServiceCreation.waiting_for_description)
 async def get_service_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
     await state.set_state(ServiceCreation.waiting_for_price)
-    await message.answer('Введите цену услуги (в рублях, только число):\n\nДля отмены введите /cancel')
+    await message.answer('Введите цену услуги (в рублях, только число):\n\nДля отмены введите /cancel', 
+    reply_markup=ForceReply(selective=True, input_field_placeholder="Цена:"))
 
 @admin_router.message(ServiceCreation.waiting_for_price)
 async def get_service_price(message: Message, state: FSMContext):
     try:
         price = int(message.text)
         if price <= 0:
-            await message.answer('Цена должна быть положительным числом. Попробуйте снова:')
+            await message.answer('Цена должна быть положительным числом. Попробуйте снова:', reply_markup=ForceReply(input_field_placeholder="Только число, например: 1500", selective=True))
             return
         await state.update_data(price=price)
         await state.set_state(ServiceCreation.waiting_for_duration)
-        await message.answer('Введите длительность услуги в минутах (только число):\n\nДля отмены введите /cancel')
+        await message.answer('Введите длительность услуги в минутах (только число):\n\nДля отмены введите /cancel',
+        reply_markup=ForceReply(input_field_placeholder="Например: 60", selective=True))
     except ValueError:
-        await message.answer('Пожалуйста, введите только число для цены:')
+        await message.answer('Пожалуйста, введите только число для цены:', reply_markup=ForceReply(input_field_placeholder="Только число, например: 1500", selective=True))
 
 @admin_router.message(ServiceCreation.waiting_for_duration)
 async def get_service_duration(message: Message, state: FSMContext, session: AsyncSession):
     try:
         duration = int(message.text)
         if duration <= 0:
-            await message.answer('Длительность должна быть положительным числом. Попробуйте снова:')
+            await message.answer('Длительность должна быть положительным числом. Попробуйте снова:', 
+            reply_markup=ForceReply(input_field_placeholder="Длительность в минутах:", selective=True))
             return
         
         data = await state.get_data()
@@ -133,7 +139,8 @@ async def get_service_duration(message: Message, state: FSMContext, session: Asy
             reply_markup=admin_kb.admin_kb.as_markup()
         )
     except ValueError:
-        await message.answer('Пожалуйста, введите только число для длительности:')
+        await message.answer('Пожалуйста, введите только число для длительности:',
+        reply_markup=ForceReply(input_field_placeholder="Только число, например: 60", selective=True))
 
 @admin_router.callback_query(F.data=='view_services')
 async def view_services(callback: CallbackQuery, session: AsyncSession):

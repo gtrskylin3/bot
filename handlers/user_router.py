@@ -7,7 +7,7 @@ from database.orm_query import get_or_create_user, deactivate_user, create_booki
 from keyboards.user_menu import set_user_menu
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile, ChatMemberUpdated, \
-    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact, ReplyKeyboardRemove, ResultChatMemberUnion
+    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Contact, ReplyKeyboardRemove, ResultChatMemberUnion, ForceReply
 from aiogram.filters import CommandStart, Command, or_f, StateFilter
 import keyboards.user_kb as user_kb
 from handlers.user_text import START_TEXT
@@ -154,7 +154,8 @@ async def start_signup(callback: CallbackQuery, state: FSMContext, session: Asyn
             f"📝 <b>Запись на услугу: {service.name}</b>\n\n"
             f"💰 <b>Стоимость:</b> {service.price} ₽\n\n"
             f"Пожалуйста, введите ваше имя:\n\n"
-            f"<i>Для отмены записи введите /cancel</i>"
+            f"<i>Для отмены записи введите /cancel</i>",
+            reply_markup=ForceReply(selective=True, input_field_placeholder="Введите ваше имя")
         )
         await callback.answer()
     else:
@@ -165,7 +166,7 @@ async def start_signup(callback: CallbackQuery, state: FSMContext, session: Asyn
 async def get_name(message: Message, state: FSMContext, session: AsyncSession):
     name = message.text.strip().title()
     if len(name) < 2:
-        await message.answer("❌ Имя должно содержать минимум 2 символа. Попробуйте снова:")
+        await message.answer("❌ Имя должно содержать минимум 2 символа. Попробуйте снова:", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите имя (минимум 2 символа)"))
         return
     
     await state.update_data(name=name)
@@ -187,7 +188,8 @@ async def get_name(message: Message, state: FSMContext, session: AsyncSession):
                          "📅 Введите предпочитаемую дату:\n\n"
                          "<i>Формат: ДД.ММ (например: 15.01)</i>\n\n"
                          "<i>Для отмены записи введите /cancel</i>",
-                            reply_markup=user_kb.phone_kb.as_markup())
+                         
+                            reply_markup=ForceReply(selective=True, input_field_placeholder="Введите дату"))
 
 @user_router.message(Signup.waiting_for_phone)
 async def get_phone(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
@@ -212,7 +214,10 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot, session: Asyn
         try:
             parsed_phone = phonenumbers.parse(phone, "RU")
             if not phonenumbers.is_valid_number(parsed_phone):
-                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>",
+                reply_markup=ForceReply(selective=True, 
+                input_field_placeholder="Введите номер телефона")
+                )
                 return
             
             await state.update_data(phone=phone)
@@ -220,7 +225,10 @@ async def get_phone(message: Message, state: FSMContext, bot: Bot, session: Asyn
             await state.set_state(Signup.waiting_for_date)
             #валидация телефона
         except phonenumbers.NumberParseException:
-            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>",
+                reply_markup=ForceReply(selective=True, 
+                input_field_placeholder="Введите номер телефона")
+                )
             return
     await message.answer(
     "📅 Введите предпочитаемую дату:\n\n"
@@ -253,7 +261,8 @@ async def get_date(message: Message, state: FSMContext):
         input_date = datetime.strptime(f"{date_text}.{current_date.year}", '%d.%m.%Y')
         # Проверяем, что дата не в прошлом
         if input_date.date() < current_date.date():
-            await message.answer("❌ Вы не можете выбрать прошедшую дату. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>")
+            await message.answer("❌ Вы не можете выбрать прошедшую дату. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>",
+            reply_markup=ForceReply(input_field_placeholder="Введите дату:", selective=True))
             return
             
         date_text = date_text.split('.')
@@ -266,11 +275,13 @@ async def get_date(message: Message, state: FSMContext):
         await message.answer(
             "🕐 Введите предпочитаемое время:\n\n"
             "<i>Формат: ЧЧ:ММ (например: 14:00)</i>\n\n"
-            "<i>Для отмены записи введите /cancel</i>"
-    )
+            "<i>Для отмены записи введите /cancel</i>",
+            reply_markup=ForceReply(selective=True, input_field_placeholder="Введите время, например: 14:00")
+        )
         
     except ValueError:
-        await message.answer("❌ Неверный формат даты. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>")
+        await message.answer("❌ Неверный формат даты. Попробуйте снова:\n\n<i>Формат: ДД.ММ (например: 15.01)</i>",
+        reply_markup=ForceReply(input_field_placeholder="Введите дату через ."))
         return
     
     
@@ -282,7 +293,7 @@ async def get_time(message: Message, state: FSMContext, bot: Bot, session: Async
     try:
         datetime.strptime(time_text, '%H:%M')
     except ValueError:
-        await message.answer("❌ Неверный формат времени. Попробуйте снова:\n\n<i>Формат: ЧЧ:ММ (например: 14:00)</i>")
+        await message.answer("❌ Неверный формат времени. Попробуйте снова:\n\n<i>Формат: ЧЧ:ММ (например: 14:00)</i>", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите время, например: 14:00"))
         return
     
     await state.update_data(preferred_time=time_text)

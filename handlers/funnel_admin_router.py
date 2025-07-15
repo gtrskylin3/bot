@@ -1,6 +1,6 @@
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, ForceReply
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -21,6 +21,13 @@ from database.orm_query import (
     get_all_funnels
 )
 
+content_type_text = {
+            'video': 'Видео',
+            'audio': 'Аудио',
+            'text': 'Текст'
+            }
+
+
 class FunnelCreation(StatesGroup):
     waiting_for_name = State()
     waiting_for_description = State()
@@ -28,6 +35,7 @@ class FunnelCreation(StatesGroup):
 class FunnelStepCreation(StatesGroup):
     waiting_for_title = State()
     waiting_for_content = State()
+    edit_content = State()
     waiting_for_step_type = State()
 
 # Создаем роутер и применяем фильтр админа
@@ -54,7 +62,8 @@ async def start_create_funnel(callback: CallbackQuery, state: FSMContext):
         '🆕 <b>Создание новой воронки</b>\n\n'
         'Введите название воронки:\n\n'
         '<i>Например: "Курс по снятию стресса"</i>\n\n'
-        'Для отмены введите /cancel'
+        'Для отмены введите /cancel',
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Название воронки, например: Курс по снятию стресса")
     )
 
 @funnel_admin_router.message(F.text, FunnelCreation.waiting_for_name)
@@ -64,7 +73,8 @@ async def get_funnel_name(message: Message, state: FSMContext):
     await message.answer(
         '📝 Введите описание воронки:\n\n'
         '<i>Краткое описание того, что получит пользователь</i>\n\n'
-        'Для отмены введите /cancel'
+        'Для отмены введите /cancel',
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Описание воронки, например: Курс для снятия стресса")
     )
     
 @funnel_admin_router.message(F.text, FunnelCreation.waiting_for_description)
@@ -143,7 +153,8 @@ async def start_add_funnel_step(callback: CallbackQuery, state: FSMContext, sess
                 f'📝 <b>Добавление этапа в воронку "{funnel.name.title()}"</b>\n\n'
                 'Введите заголовок этапа:\n\n'
                 '<i>Например: "День 1: Основы дыхательной гимнастики"</i>\n\n'
-                'Для отмены введите /cancel'
+                'Для отмены введите /cancel',
+                reply_markup=ForceReply(selective=True, input_field_placeholder="Заголовок этапа:")
             )
 
 
@@ -171,12 +182,13 @@ async def get_step_title(message: Message, state: FSMContext):
     await state.set_state(FunnelStepCreation.waiting_for_content)
     await message.answer(
         '📄 Введите контент этапа:\n\n'
-        '<i>Отправьте текст или видео, который получит пользователь</i>\n\n'
-        'Для отмены введите /cancel'
+        '<i>Отправьте текст, видео или аудио, который получит пользователь</i>\n\n'
+        'Для отмены введите /cancel',
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Текст этапа или видео/аудио")
     )
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_content)
-async def get_step_content(message: Message, state: FSMContext, session: AsyncSession):
+async def get_step_content(message: Message, state: FSMContext):
     # Для текста сохраняем текст
     await state.update_data(content=message.text)
     await state.update_data(content_type='text')
@@ -190,20 +202,76 @@ async def get_step_content(message: Message, state: FSMContext, session: AsyncSe
         'Выберите "бесплатный" или "платный":', reply_markup=funnel_kb.free_paid_kb
     )
 
+
+async def edit_caption(message: Message, state: FSMContext):
+    if message.text:
+        await state.update_data(content=message.text)
+        await state.set_state(FunnelStepCreation.waiting_for_step_type)
+        await message.answer(
+        '💰 Выберите тип этапа:\n\n'
+        '🆓 <b>Бесплатный</b> - пользователь получает сразу\n'
+        '💰 <b>Платный</b> - предлагается записаться на консультацию\n\n'
+        'Выберите "бесплатный" или "платный":', reply_markup=funnel_kb.free_paid_kb
+    )
+        return
+        
+
 @funnel_admin_router.message(F.video, FunnelStepCreation.waiting_for_content)
 async def get_step_video(message: Message, state: FSMContext):
     # Для видео сохраняем file_id и добавляем описание
     await state.update_data(file_id=message.video.file_id)
     await state.update_data(content_type='video')
     await state.update_data(content=message.caption or "Видео урок")
-    
-    await state.set_state(FunnelStepCreation.waiting_for_step_type)
     await message.answer(
+    f"Подпись: {message.caption or "Видео урок"}\n\n"
+    "Вы хотите оставить подпись?", 
+    reply_markup=funnel_kb.confirm_content_caption
+    )
+
+@funnel_admin_router.callback_query(F.data == 'edit_content_text', FunnelStepCreation.waiting_for_content) 
+async def send_edit_content_message(callback: CallbackQuery, state:FSMContext):
+    await callback.answer("Введите новую подпись")
+    await state.set_state(FunnelStepCreation.edit_content)
+    await callback.message.answer("Введите новую подпись", reply_markup=ForceReply(selective=True, 
+    input_field_placeholder="Введите подпись к видео/аудио этапу"))
+
+    
+
+
+@funnel_admin_router.message(FunnelStepCreation.edit_content) 
+async def edit_content_text_process(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer('Отправьте текст', reply_markup=ForceReply(selective=True, 
+        input_field_placeholder="Введите подпись к видео/аудио этапа"))
+        return
+    await edit_caption(message=message, state=state)
+    
+
+
+@funnel_admin_router.callback_query(F.data == 'keep_content_text', FunnelStepCreation.waiting_for_content) 
+async def keep_content_text_process(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FunnelStepCreation.waiting_for_step_type)
+    await callback.answer('')
+    await callback.message.answer(
         '💰 Выберите тип этапа:\n\n'
         '🆓 <b>Бесплатный</b> - пользователь получает сразу\n'
-        '💰 <b>Платный</b> - предлагается записаться на консультацию\n\n'
+        '💰 <b>Платный</b> -  конец воронки, предлагается записаться на консультацию\n\n'
         'Выберите "бесплатный" или "платный":', reply_markup=funnel_kb.free_paid_kb
     )
+
+
+@funnel_admin_router.message(F.audio, FunnelStepCreation.waiting_for_content)
+async def get_step_video(message: Message, state: FSMContext):
+    # Для видео сохраняем file_id и добавляем описание
+    await state.update_data(file_id=message.audio.file_id)
+    await state.update_data(content_type='audio')
+    await state.update_data(content=message.caption or "")
+    
+    await message.answer(
+    f"Подпись: {message.caption or "Без подписи"}\n\n"
+    "Вы хотите оставить подпись?",
+    reply_markup=funnel_kb.confirm_content_caption)
+
 
 @funnel_admin_router.message(F.text, FunnelStepCreation.waiting_for_step_type)
 async def get_step_type(message: Message, state: FSMContext, session: AsyncSession):
@@ -235,6 +303,7 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
         funnel_with_steps = await get_funnel_with_steps(session, funnel.id)
         next_order = len(funnel_with_steps.steps) + 1
 
+        content_type = data['content_type']
         # Создаем этап
         step = await create_funnel_step(
             session=session,
@@ -242,17 +311,20 @@ async def get_step_type(message: Message, state: FSMContext, session: AsyncSessi
             order=next_order,
             title=data['title'],
             content=data['content'],
-            content_type=data['content_type'],
+            content_type=content_type,
             is_free=is_free,
             file_id=data.get('file_id')
         )
 
         await state.clear()
-        content_type_text = "Видео" if data['content_type'] == 'video' else "Текст"
+        
+        
+
+
         await message.answer(
             f'✅ <b>Этап успешно добавлен в воронку "{funnel.name}"!</b>\n\n'
             f'📝 <b>Заголовок:</b> {data["title"]}\n'
-            f'📄 <b>Тип контента:</b> {content_type_text}\n'
+            f'📄 <b>Тип контента:</b> {content_type_text.get(content_type)}\n'
             f'💰 <b>Тип:</b> {"Бесплатный" if is_free else "Платный"}\n'
             f'🆔 <b>Номер этапа:</b> {step.order}',
             reply_markup=funnel_kb.get_funnel_manage_kb(funnel)
@@ -285,9 +357,14 @@ async def show_funnel_steps_for_funnel(message: Message, session: AsyncSession, 
     if funnel_with_steps and funnel_with_steps.steps:
         text = f'📋 <b>Этапы воронки "{funnel.name}"</b>\n\n'
         for step in funnel_with_steps.steps:
-            content_type_icon = "🎥" if step.content_type == 'video' else "📝"
+            if step.content_type == 'video':
+                content_type_icon = "🎥"   
+            elif step.content_type== "audio":
+                content_type_icon = "🔉"   
+            else:
+                content_type_icon = "📝"
             text += f'{content_type_icon} <b>{step.order}. {step.title}</b>\n'
-            text += f'📄 Тип контента: {"Видео" if step.content_type == "video" else "Текст"}\n'
+            text += f'📄 Тип контента: <b>{content_type_text.get(step.content_type)}</b>\n'
             text += f'💰 Тип: {"Бесплатный" if step.is_free else "Платный"}\n\n'
         
         await message.answer(text, reply_markup=funnel_kb.get_funnel_manage_kb(funnel))

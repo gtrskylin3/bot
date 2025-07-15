@@ -31,7 +31,8 @@ sub_kb = InlineKeyboardMarkup(inline_keyboard=[
 contact_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="📞 Поделиться контактом", request_contact=True)]],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=True,
+        input_field_placeholder="Введите номер или поделитесь контактом"
     )
 
 start_course_kb = InlineKeyboardBuilder()

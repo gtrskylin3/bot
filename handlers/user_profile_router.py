@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery, Contact, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, Contact, ReplyKeyboardRemove, ForceReply
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,7 +87,7 @@ async def update_phone_handler(message: Message, state: FSMContext, session: Asy
         try:
             parsed_phone = phonenumbers.parse(phone, "RU")
             if not phonenumbers.is_valid_number(parsed_phone):
-                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+                await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\nОтмена: /cancel", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите номер телефона в формате +7XXXXXXXXXX или 8XXXXXXXXXX"))
                 return
             await update_phone(session, message.from_user.id, phone)
             await state.clear()
@@ -97,6 +97,6 @@ async def update_phone_handler(message: Message, state: FSMContext, session: Asy
             await message.answer("✅ Номер телефона успешно обновлен!", reply_markup=user_kb.user_profile_kb.as_markup()) 
             #валидация телефона
         except phonenumbers.NumberParseException:
-            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>")
+            await message.answer("❌ Неверный формат номера телефона. Попробуйте снова:\n\n<i>Формат: +7XXXXXXXXXX или 8XXXXXXXXXX</i>\n\nОтмена: /cancel", reply_markup=ForceReply(selective=True, input_field_placeholder="Введите номер телефона в формате +7XXXXXXXXXX или 8XXXXXXXXXX"))
             return
 

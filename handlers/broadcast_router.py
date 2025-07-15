@@ -1,6 +1,6 @@
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ForceReply, Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,7 +70,8 @@ async def start_custom_broadcast(callback: CallbackQuery, state: FSMContext):
     await state.set_state(BroadcastSettings.waiting_for_custom_text)
     await callback.message.answer(
         '✏️ Введите текст для рассылки:\n\n'
-        'Для отмены введите /cancel'
+        'Для отмены введите /cancel',
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Введите текст рассылки")
     )
 
 @broadcast_router.callback_query(F.data=='change_default')
@@ -79,8 +80,8 @@ async def start_change_default(callback: CallbackQuery, state: FSMContext):
     await callback.answer('')
     await state.set_state(BroadcastSettings.waiting_for_default_text)
     await callback.message.answer(
-        '⚙️ Введите новый стандартный текст для рассылки:\n\n'
-        'Для отмены введите /cancel'
+        '⚙️ Введите новый стандартный текст для рассылки:\n\nДля отмены введите /cancel',
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Введите стандартный текст рассылки")
     )
 
 @broadcast_router.message(BroadcastSettings.waiting_for_custom_text)
@@ -99,7 +100,7 @@ async def edit_custom_text(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
     await state.set_state(BroadcastSettings.waiting_for_custom_text)
-    await callback.message.answer('Введите новый текст для рассылки:')
+    await callback.message.answer('Введите новый текст для рассылки:', reply_markup=ForceReply(selective=True, input_field_placeholder="Введите новый текст рассылки"))
 
 @broadcast_router.callback_query(F.data=='confirm_send_text', BroadcastSettings.waiting_for_custom_confirm)
 async def confirm_send_text(callback: CallbackQuery, bot: Bot, session: AsyncSession, state: FSMContext):
@@ -190,7 +191,7 @@ async def edit_caption(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.answer('')
     await state.set_state(SendVideo.waiting_for_caption)
-    await callback.message.answer('Введите новый текст для подписи к видео:')
+    await callback.message.answer('Введите новый текст для подписи к видео:', reply_markup=ForceReply(selective=True, input_field_placeholder="Введите новый текст подписи к видео"))
 
 
 @broadcast_router.message(F.text, SendVideo.waiting_for_caption)
